@@ -1,0 +1,1370 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#121418" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>OCT Labeler Tab (Redmi Pad 2)</title>
+  <link rel="manifest" href="manifest.json" />
+  <style>
+    :root {
+      --bg-dark: #121418;
+      --bg-panel: #1b1f27;
+      --bg-card: #242933;
+      --border: #323946;
+      --text: #eef2f6;
+      --text-muted: #9aa4b2;
+      --accent-blue: #00d2ff;
+      --accent-red: #ff4757;
+      --accent-green: #2ed573;
+      --accent-amber: #ffa502;
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    body, html {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background-color: var(--bg-dark);
+      color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      overflow: hidden;
+    }
+
+    .app-layout {
+      display: flex;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    /* SIDEBAR KIRI (Kontrol Tablet) */
+    .sidebar {
+      width: 340px;
+      min-width: 320px;
+      background: var(--bg-panel);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 10px;
+      overflow-y: auto;
+      z-index: 10;
+    }
+
+    .brand-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 6px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .brand-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--accent-blue);
+    }
+
+    .badge-mode {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 12px;
+      background: #2b3545;
+      color: #a3e635;
+      font-weight: 600;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .card-title {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      margin: 0;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 6px;
+    }
+
+    button, .file-btn {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: #2d3442;
+      color: var(--text);
+      padding: 9px 10px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+      flex: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      transition: background 0.12s, transform 0.08s;
+    }
+
+    button:active, .file-btn:active {
+      transform: scale(0.97);
+    }
+
+    button.primary, .file-btn.primary {
+      background: #1e6fd9;
+      border-color: #3482eb;
+    }
+
+    button.success {
+      background: #1f8b4c;
+      border-color: #2ecc71;
+      color: #fff;
+    }
+
+    button.danger {
+      background: #7c2d36;
+      border-color: #e63946;
+      color: #ffdce0;
+    }
+
+    button.active-tool {
+      outline: 2px solid #fff;
+      box-shadow: 0 0 10px rgba(0, 210, 255, 0.4);
+    }
+
+    .class-btn-1.active-tool {
+      background: #007799;
+      border-color: var(--accent-blue);
+    }
+
+    .class-btn-2.active-tool {
+      background: #a8202d;
+      border-color: var(--accent-red);
+    }
+
+    .class-btn-0.active-tool {
+      background: #6b5b00;
+      border-color: var(--accent-amber);
+    }
+
+    /* Preview & Crop Box */
+    .crop-box-wrap {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    #rawPreviewCanvas {
+      width: 115px;
+      height: 115px;
+      background: #0e1014;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      touch-action: none;
+      flex-shrink: 0;
+    }
+
+    .crop-controls {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 12px;
+    }
+
+    select, input[type="number"] {
+      width: 100%;
+      background: #161920;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px;
+      font-size: 12px;
+    }
+
+    .xy-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    .slider-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 12px;
+    }
+
+    input[type="range"] {
+      flex: 1;
+      accent-color: var(--accent-blue);
+    }
+
+    .file-list {
+      max-height: 150px;
+      min-height: 90px;
+      overflow-y: auto;
+      background: #15181f;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px;
+      font-size: 12px;
+    }
+
+    .file-item {
+      padding: 6px 8px;
+      border-radius: 5px;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2px;
+    }
+
+    .file-item.active {
+      background: #28364d;
+      font-weight: 700;
+    }
+
+    .file-item.done {
+      color: var(--accent-green);
+    }
+
+    /* AREA KANVAS KANAN */
+    .workspace {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: #0d0f12;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .top-toolbar {
+      height: 50px;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      gap: 8px;
+      z-index: 5;
+    }
+
+    .toolbar-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .toolbar-group button {
+      flex: initial;
+      padding: 7px 12px;
+      font-size: 12px;
+    }
+
+    .canvas-viewport {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      touch-action: none; /* Penting untuk Stylus Pen & Pinch Zoom */
+    }
+
+    .canvas-stage {
+      position: relative;
+      width: 512px;
+      height: 512px;
+      transform-origin: center center;
+      box-shadow: 0 0 25px rgba(0, 0, 0, 0.8);
+      border: 2px solid #3a4252;
+      background: #000;
+    }
+
+    .canvas-stage canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 512px;
+      height: 512px;
+      image-rendering: pixelated;
+    }
+
+    .status-footer {
+      height: 32px;
+      background: var(--bg-panel);
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    input[type="file"] {
+      display: none;
+    }
+
+    #installBanner {
+      display: none;
+      background: #1b4332;
+      border: 1px solid #40916c;
+      padding: 8px;
+      border-radius: 8px;
+      font-size: 12px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-layout">
+    <!-- PANEL KIRI -->
+    <aside class="sidebar">
+      <div class="brand-bar">
+        <span class="brand-title">OCT Labeler • Redmi Pad 2</span>
+        <span id="connectionBadge" class="badge-mode">Mode Mandiri (Tab)</span>
+      </div>
+
+      <div id="installBanner">
+        <span>Pasang aplikasi ini di layar utama Redmi Pad:</span>
+        <button id="btnInstallPwa" class="success" style="flex:0; white-space:nowrap;">Install App</button>
+      </div>
+
+      <!-- 1. INPUT GAMBAR -->
+      <div class="card">
+        <p class="card-title">1. Sumber Gambar OCT</p>
+        <div class="btn-row">
+          <label class="file-btn primary" for="fileInput">
+            📂 Pilih Gambar OCT
+          </label>
+          <input id="fileInput" type="file" accept="image/*" multiple />
+          <label class="file-btn" for="folderInput">
+            📁 Pilih Folder
+          </label>
+          <input id="folderInput" type="file" webkitdirectory directory multiple />
+        </div>
+        <div id="serverFolderRow" class="btn-row" style="display:none;">
+          <button id="btnLoadServerImages" class="primary">🔄 Muat dari Folder Laptop</button>
+        </div>
+        <div style="font-size:11px; color:var(--text-muted);" id="fileStatusText">
+          Belum ada gambar dipilih.
+        </div>
+      </div>
+
+      <!-- 2. AUTO-CROP 512x512 -->
+      <div class="card">
+        <p class="card-title">2. Auto-Crop ROI (512×512 px)</p>
+        <div class="crop-box-wrap">
+          <canvas id="rawPreviewCanvas" width="120" height="120" title="Geser kotak hijau untuk mengatur posisi crop"></canvas>
+          <div class="crop-controls">
+            <select id="cropModeSelect">
+              <option value="top_center" selected>Atas-Tengah (Y=0)</option>
+              <option value="auto_surface">Auto Permukaan OCT</option>
+              <option value="center">Tengah Penuh (Center)</option>
+              <option value="custom">Manual (Geser Kotak)</option>
+            </select>
+            <div class="xy-grid">
+              <div>
+                <label>Start X</label>
+                <input id="inputStartX" type="number" min="0" max="4000" value="244" />
+              </div>
+              <div>
+                <label>Start Y</label>
+                <input id="inputStartY" type="number" min="0" max="4000" value="0" />
+              </div>
+            </div>
+            <div id="dimInfoText" style="font-size:11px; color:#a3e635;">
+              ROI: 512×512 px
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. ALAT ANOTASI STYLUS PEN -->
+      <div class="card">
+        <p class="card-title">3. Kelas Anotasi & Stylus Pen</p>
+        <div class="btn-row">
+          <button id="btnClass1" class="class-btn-1 active-tool" onclick="setClass(1)">
+            🔵 Class 1: Permukaan
+          </button>
+          <button id="btnClass2" class="class-btn-2" onclick="setClass(2)">
+            🔴 Class 2: Bawah
+          </button>
+        </div>
+        <div class="btn-row">
+          <button id="btnClass0" class="class-btn-0" onclick="setClass(0)">
+            🧽 Eraser (Nilai 0)
+          </button>
+          <button id="btnPanMode" onclick="togglePanMode()">
+            ✋ Mode Geser Layar
+          </button>
+        </div>
+
+        <div class="slider-row">
+          <span>Ketebalan Brush: <strong id="brushValLabel">2</strong> px</span>
+          <input id="brushSlider" type="range" min="1" max="20" value="2" />
+        </div>
+
+        <div class="slider-row">
+          <span>Opasitas Warna: <strong id="alphaValLabel">75</strong>%</span>
+          <input id="alphaSlider" type="range" min="20" max="100" value="75" />
+        </div>
+
+        <label style="font-size:12px; display:flex; align-items:center; gap:6px; cursor:pointer;">
+          <input id="chkPenOnly" type="checkbox" />
+          <span><strong>Mode Khusus Stylus Pen</strong> (Tolak sentuhan jari/telapak tangan saat menggambar)</span>
+        </label>
+      </div>
+
+      <!-- 4. DAFTAR GAMBAR -->
+      <div class="card" style="flex:1; min-height:130px;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <p class="card-title">4. Daftar Gambar</p>
+          <span id="progressLabel" style="font-size:11px; color:var(--accent-green);">0 / 0 selesai</span>
+        </div>
+        <div id="fileListContainer" class="file-list"></div>
+      </div>
+
+      <!-- 5. NAVIGASI & SIMPAN -->
+      <div class="card">
+        <div class="btn-row">
+          <button onclick="prevImage()">⬅️ Prev</button>
+          <button onclick="nextImage()">Next ➡️</button>
+        </div>
+        <div class="btn-row">
+          <button class="success" onclick="saveCurrentImage()">
+            💾 Simpan Gambar Ini
+          </button>
+        </div>
+        <div class="btn-row">
+          <button class="primary" onclick="exportAllAsZip()">
+            📦 Download Semua Dataset (.ZIP)
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- AREA KANVAS KANAN -->
+    <main class="workspace">
+      <div class="top-toolbar">
+        <div class="toolbar-group">
+          <button onclick="undoStroke()">↩️ Undo</button>
+          <button class="danger" onclick="clearCurrentMask()">🗑️ Clear Label</button>
+          <button id="btnToggleOverlay" onclick="toggleOverlay()">👁️ Overlay: ON</button>
+        </div>
+        <div class="toolbar-group">
+          <button onclick="adjustZoom(-0.25)">➖ Zoom Out</button>
+          <button onclick="resetView()">100%</button>
+          <button onclick="adjustZoom(0.25)">➕ Zoom In</button>
+        </div>
+      </div>
+
+      <div id="viewport" class="canvas-viewport">
+        <div id="stage" class="canvas-stage">
+          <canvas id="imgCanvas" width="512" height="512"></canvas>
+          <canvas id="overlayCanvas" width="512" height="512"></canvas>
+        </div>
+      </div>
+
+      <div class="status-footer">
+        <span id="statusText">Siap. Pilih gambar OCT untuk memulai pelabelan dengan Pen.</span>
+        <span id="statsText">Class 1: 0 px | Class 2: 0 px</span>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    /*************************************************************************
+     * 1. ENCODER PNG GRAYSCALE 8-BIT MURNI (0, 1, 2) & ZIP GENERATOR
+     *    Menjamin file *_mask.png berukuran (512, 512) 1-channel Grayscale
+     *    dengan nilai piksel integer murni {0, 1, 2} untuk PyTorch U-Net!
+     *************************************************************************/
+    const CRC_TABLE = (() => {
+      const table = new Uint32Array(256);
+      for (let n = 0; n < 256; n++) {
+        let c = n;
+        for (let k = 0; k < 8; k++) {
+          c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+        }
+        table[n] = c >>> 0;
+      }
+      return table;
+    })();
+
+    function crc32(bytes, start = 0, len = bytes.length - start) {
+      let c = 0xffffffff;
+      for (let i = start; i < start + len; i++) {
+        c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+      }
+      return (c ^ 0xffffffff) >>> 0;
+    }
+
+    function adler32(bytes) {
+      let a = 1, b = 0;
+      const MOD = 65521;
+      for (let i = 0; i < bytes.length; i++) {
+        a = (a + bytes[i]) % MOD;
+        b = (b + a) % MOD;
+      }
+      return ((b << 16) | a) >>> 0;
+    }
+
+    function writeUint32BE(arr, offset, val) {
+      arr[offset]     = (val >>> 24) & 0xff;
+      arr[offset + 1] = (val >>> 16) & 0xff;
+      arr[offset + 2] = (val >>> 8) & 0xff;
+      arr[offset + 3] = val & 0xff;
+    }
+
+    function makePngChunk(typeStr, dataBytes) {
+      const chunk = new Uint8Array(12 + dataBytes.length);
+      writeUint32BE(chunk, 0, dataBytes.length);
+      for (let i = 0; i < 4; i++) chunk[4 + i] = typeStr.charCodeAt(i);
+      chunk.set(dataBytes, 8);
+      const crc = crc32(chunk, 4, 4 + dataBytes.length);
+      writeUint32BE(chunk, 8 + dataBytes.length, crc);
+      return chunk;
+    }
+
+    function encodeGrayscale8BitPNG(maskUint8, width = 512, height = 512) {
+      // Setiap baris scanline diawali 1 byte filter (0 = None)
+      const rawScanlines = new Uint8Array(height * (1 + width));
+      let ptr = 0;
+      for (let y = 0; y < height; y++) {
+        rawScanlines[ptr++] = 0; // Filter type 0 (None)
+        const rowStart = y * width;
+        for (let x = 0; x < width; x++) {
+          rawScanlines[ptr++] = maskUint8[rowStart + x];
+        }
+      }
+
+      // Bungkus dalam Zlib Non-Compressed Deflate Blocks (100% lossless & cepat)
+      const maxBlock = 65535;
+      const numBlocks = Math.ceil(rawScanlines.length / maxBlock);
+      const zlibLen = 2 + rawScanlines.length + numBlocks * 5 + 4;
+      const zlibData = new Uint8Array(zlibLen);
+      let zPtr = 0;
+      zlibData[zPtr++] = 0x78; // CMF
+      zlibData[zPtr++] = 0x01; // FLG
+
+      let remaining = rawScanlines.length;
+      let srcOffset = 0;
+      while (remaining > 0) {
+        const blkLen = Math.min(remaining, maxBlock);
+        const isLast = (remaining - blkLen === 0) ? 1 : 0;
+        zlibData[zPtr++] = isLast;
+        zlibData[zPtr++] = blkLen & 0xff;
+        zlibData[zPtr++] = (blkLen >>> 8) & 0xff;
+        const nlen = (~blkLen) & 0xffff;
+        zlibData[zPtr++] = nlen & 0xff;
+        zlibData[zPtr++] = (nlen >>> 8) & 0xff;
+        zlibData.set(rawScanlines.subarray(srcOffset, srcOffset + blkLen), zPtr);
+        zPtr += blkLen;
+        srcOffset += blkLen;
+        remaining -= blkLen;
+      }
+
+      const adler = adler32(rawScanlines);
+      writeUint32BE(zlibData, zPtr, adler);
+
+      // IHDR: width(4), height(4), bitDepth=8(1), colorType=0 Grayscale(1), comp=0, filter=0, interlace=0
+      const ihdr = new Uint8Array(13);
+      writeUint32BE(ihdr, 0, width);
+      writeUint32BE(ihdr, 4, height);
+      ihdr[8] = 8;  // 8-bit
+      ihdr[9] = 0;  // ColorType 0 = Pure Grayscale (1 channel)
+      ihdr[10] = 0;
+      ihdr[11] = 0;
+      ihdr[12] = 0;
+
+      const sig = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+      const cIHDR = makePngChunk("IHDR", ihdr);
+      const cIDAT = makePngChunk("IDAT", zlibData);
+      const cIEND = makePngChunk("IEND", new Uint8Array(0));
+
+      const out = new Uint8Array(sig.length + cIHDR.length + cIDAT.length + cIEND.length);
+      let o = 0;
+      out.set(sig, o); o += sig.length;
+      out.set(cIHDR, o); o += cIHDR.length;
+      out.set(cIDAT, o); o += cIDAT.length;
+      out.set(cIEND, o);
+      return out;
+    }
+
+    // Pembuat file .ZIP murni di browser (Store mode)
+    function buildZipFile(entries) {
+      // entries: [{ name: "images/foo_crop.png", data: Uint8Array }, ...]
+      const encoder = new TextEncoder();
+      const localParts = [];
+      const centralParts = [];
+      let offset = 0;
+
+      for (const item of entries) {
+        const nameBytes = encoder.encode(item.name);
+        const data = item.data;
+        const crc = crc32(data);
+
+        const localHeader = new Uint8Array(30 + nameBytes.length);
+        const lv = new DataView(localHeader.buffer);
+        lv.setUint32(0, 0x04034b50, true);
+        lv.setUint16(4, 20, true);
+        lv.setUint16(6, 0, true);
+        lv.setUint16(8, 0, true); // Store (0)
+        lv.setUint16(10, 0, true);
+        lv.setUint16(12, 0, true);
+        lv.setUint32(14, crc, true);
+        lv.setUint32(18, data.length, true);
+        lv.setUint32(22, data.length, true);
+        lv.setUint16(26, nameBytes.length, true);
+        lv.setUint16(28, 0, true);
+        localHeader.set(nameBytes, 30);
+
+        const centralHeader = new Uint8Array(46 + nameBytes.length);
+        const cv = new DataView(centralHeader.buffer);
+        cv.setUint32(0, 0x02014b50, true);
+        cv.setUint16(4, 20, true);
+        cv.setUint16(6, 20, true);
+        cv.setUint16(8, 0, true);
+        cv.setUint16(10, 0, true);
+        cv.setUint16(12, 0, true);
+        cv.setUint16(14, 0, true);
+        cv.setUint32(16, crc, true);
+        cv.setUint32(20, data.length, true);
+        cv.setUint32(24, data.length, true);
+        cv.setUint16(28, nameBytes.length, true);
+        cv.setUint16(30, 0, true);
+        cv.setUint16(32, 0, true);
+        cv.setUint16(34, 0, true);
+        cv.setUint16(36, 0, true);
+        cv.setUint32(38, 0, true);
+        cv.setUint32(42, offset, true);
+        centralHeader.set(nameBytes, 46);
+
+        localParts.push(localHeader, data);
+        centralParts.push(centralHeader);
+        offset += localHeader.length + data.length;
+      }
+
+      let centralSize = 0;
+      for (const c of centralParts) centralSize += c.length;
+
+      const eocd = new Uint8Array(22);
+      const ev = new DataView(eocd.buffer);
+      ev.setUint32(0, 0x06054b50, true);
+      ev.setUint16(4, 0, true);
+      ev.setUint16(6, 0, true);
+      ev.setUint16(8, entries.length, true);
+      ev.setUint16(10, entries.length, true);
+      ev.setUint32(12, centralSize, true);
+      ev.setUint32(16, offset, true);
+      ev.setUint16(20, 0, true);
+
+      return new Blob([...localParts, ...centralParts, eocd], { type: "application/zip" });
+    }
+
+    /*************************************************************************
+     * 2. STATE APLIKASI & LOGIKA UTAMA
+     *************************************************************************/
+    const CROP_SIZE = 512;
+    const imgCanvas = document.getElementById("imgCanvas");
+    const imgCtx = imgCanvas.getContext("2d", { willReadFrequently: true });
+    const overlayCanvas = document.getElementById("overlayCanvas");
+    const overlayCtx = overlayCanvas.getContext("2d");
+    const rawPreviewCanvas = document.getElementById("rawPreviewCanvas");
+    const rawPreviewCtx = rawPreviewCanvas.getContext("2d");
+
+    let items = []; // [{ name, stem, file, serverName, maskUint8, cropDataBytes, saved, cropCoords }]
+    let currentIndex = -1;
+    let currentRawImage = null; // HTMLImageElement
+    let currentMask = new Uint8Array(CROP_SIZE * CROP_SIZE);
+    let undoStack = [];
+
+    let activeClass = 1; // 1: Permukaan, 2: Batas Bawah, 0: Eraser
+    let brushSize = 2;
+    let overlayAlpha = 0.75;
+    let showOverlay = true;
+    let isPanMode = false;
+
+    // Transformasi Zoom & Pan
+    let zoomLevel = 1.0;
+    let panX = 0;
+    let panY = 0;
+
+    // Mode Server Laptop (otomatis terdeteksi jika dijalankan via run_tablet_server.bat)
+    let isServerMode = false;
+
+    async function checkServerMode() {
+      try {
+        const res = await fetch("/api/status", { cache: "no-store" });
+        if (res.ok) {
+          const data = await res.json();
+          isServerMode = true;
+          document.getElementById("connectionBadge").textContent = "Terhubung ke Laptop";
+          document.getElementById("connectionBadge").style.color = "#00d2ff";
+          document.getElementById("serverFolderRow").style.display = "flex";
+          if (data.files && data.files.length > 0) {
+            loadServerFileList(data.files);
+          }
+        }
+      } catch (e) {
+        isServerMode = false;
+      }
+    }
+    checkServerMode();
+
+    // Penanganan input file lokal di Tablet
+    document.getElementById("fileInput").addEventListener("change", handleLocalFiles);
+    document.getElementById("folderInput").addEventListener("change", handleLocalFiles);
+
+    function handleLocalFiles(e) {
+      const fileList = Array.from(e.target.files || []).filter(f =>
+        /\.(jpg|jpeg|png|bmp|tif|tiff)$/i.test(f.name) && !f.name.endsWith("_mask.png") && !f.name.endsWith("_crop.png")
+      );
+      if (!fileList.length) return;
+      fileList.sort((a, b) => a.name.localeCompare(b.name));
+
+      items = fileList.map(f => ({
+        name: f.name,
+        stem: f.name.replace(/\.[^/.]+$/, ""),
+        file: f,
+        serverName: null,
+        maskUint8: null,
+        cropPngBytes: null,
+        saved: false,
+        cropCoords: null
+      }));
+
+      document.getElementById("fileStatusText").textContent = `${items.length} gambar dimuat dari Tablet.`;
+      renderFileList();
+      selectItem(0);
+    }
+
+    function loadServerFileList(serverFiles) {
+      items = serverFiles.map(f => ({
+        name: f.name,
+        stem: f.stem,
+        file: null,
+        serverName: f.name,
+        maskUint8: null,
+        cropPngBytes: null,
+        saved: !!f.labeled,
+        cropCoords: null
+      }));
+      document.getElementById("fileStatusText").textContent = `${items.length} gambar dari folder Laptop.`;
+      renderFileList();
+      if (items.length > 0) selectItem(0);
+    }
+
+    document.getElementById("btnLoadServerImages").addEventListener("click", checkServerMode);
+
+    function renderFileList() {
+      const container = document.getElementById("fileListContainer");
+      container.innerHTML = "";
+      let doneCount = 0;
+      items.forEach((it, idx) => {
+        if (it.saved) doneCount++;
+        const div = document.createElement("div");
+        div.className = "file-item" + (idx === currentIndex ? " active" : "") + (it.saved ? " done" : "");
+        div.innerHTML = `<span>${it.saved ? "✅" : "⬜"} ${it.name}</span>`;
+        div.onclick = () => selectItem(idx);
+        container.appendChild(div);
+      });
+      document.getElementById("progressLabel").textContent = `${doneCount} / ${items.length} selesai`;
+    }
+
+    async function selectItem(index) {
+      if (index < 0 || index >= items.length) return;
+      currentIndex = index;
+      const item = items[index];
+      renderFileList();
+
+      const img = new Image();
+      if (item.file) {
+        img.src = URL.createObjectURL(item.file);
+      } else if (item.serverName) {
+        img.src = `/api/image?name=${encodeURIComponent(item.serverName)}&t=${Date.now()}`;
+      }
+
+      img.onload = async () => {
+        currentRawImage = img;
+        const w = img.naturalWidth;
+        const h = img.naturalHeight;
+        document.getElementById("inputStartX").max = Math.max(0, w - CROP_SIZE);
+        document.getElementById("inputStartY").max = Math.max(0, h - CROP_SIZE);
+
+        if (item.cropCoords) {
+          document.getElementById("inputStartX").value = item.cropCoords[0];
+          document.getElementById("inputStartY").value = item.cropCoords[1];
+        } else {
+          computeCropByMode();
+        }
+
+        applyCropToCanvas();
+
+        if (item.maskUint8) {
+          currentMask = new Uint8Array(item.maskUint8);
+        } else if (isServerMode && item.serverName) {
+          currentMask = new Uint8Array(CROP_SIZE * CROP_SIZE);
+          try {
+            const res = await fetch(`/api/mask?stem=${encodeURIComponent(item.stem)}`);
+            if (res.ok) {
+              const buf = await res.arrayBuffer();
+              if (buf.byteLength === CROP_SIZE * CROP_SIZE) {
+                currentMask = new Uint8Array(buf);
+                item.maskUint8 = new Uint8Array(currentMask);
+              }
+            }
+          } catch (e) {}
+        } else {
+          currentMask = new Uint8Array(CROP_SIZE * CROP_SIZE);
+        }
+
+        undoStack = [];
+        renderOverlay();
+        updateMaskStats();
+        setStatus(`Memuat ${item.name} (${w}×${h} px)`);
+      };
+    }
+
+    function computeCropByMode() {
+      if (!currentRawImage) return;
+      const w = currentRawImage.naturalWidth;
+      const h = currentRawImage.naturalHeight;
+      const mode = document.getElementById("cropModeSelect").value;
+      const centerX = Math.max(0, Math.min(w - CROP_SIZE, Math.floor(w / 2) - 256));
+
+      let sx = centerX;
+      let sy = 0;
+
+      if (mode === "top_center") {
+        sx = centerX;
+        sy = 0;
+      } else if (mode === "center") {
+        sx = centerX;
+        sy = Math.max(0, Math.min(h - CROP_SIZE, Math.floor(h / 2) - 256));
+      } else if (mode === "auto_surface") {
+        // Deteksi baris terang permukaan OCT
+        const tmp = document.createElement("canvas");
+        tmp.width = CROP_SIZE;
+        tmp.height = h;
+        const tctx = tmp.getContext("2d");
+        tctx.drawImage(currentRawImage, centerX, 0, CROP_SIZE, h, 0, 0, CROP_SIZE, h);
+        const idata = tctx.getImageData(0, 0, CROP_SIZE, h).data;
+        let bestY = 0, maxAvg = -1;
+        for (let y = 6; y < h - 6; y++) {
+          let sum = 0;
+          const rowOff = y * CROP_SIZE * 4;
+          for (let x = 0; x < CROP_SIZE * 4; x += 16) {
+            sum += idata[rowOff + x] + idata[rowOff + x + 1] + idata[rowOff + x + 2];
+          }
+          if (sum > maxAvg) {
+            maxAvg = sum;
+            bestY = y;
+          }
+        }
+        sx = centerX;
+        sy = Math.max(0, Math.min(h - CROP_SIZE, bestY - 90));
+      } else {
+        sx = Math.max(0, Math.min(w - CROP_SIZE, parseInt(document.getElementById("inputStartX").value) || 0));
+        sy = Math.max(0, Math.min(h - CROP_SIZE, parseInt(document.getElementById("inputStartY").value) || 0));
+      }
+
+      document.getElementById("inputStartX").value = sx;
+      document.getElementById("inputStartY").value = sy;
+    }
+
+    function applyCropToCanvas() {
+      if (!currentRawImage) return;
+      const w = currentRawImage.naturalWidth;
+      const h = currentRawImage.naturalHeight;
+      const sx = Math.max(0, Math.min(w - CROP_SIZE, parseInt(document.getElementById("inputStartX").value) || 0));
+      const sy = Math.max(0, Math.min(h - CROP_SIZE, parseInt(document.getElementById("inputStartY").value) || 0));
+
+      imgCtx.fillStyle = "#000";
+      imgCtx.fillRect(0, 0, CROP_SIZE, CROP_SIZE);
+      imgCtx.drawImage(currentRawImage, sx, sy, CROP_SIZE, CROP_SIZE, 0, 0, CROP_SIZE, CROP_SIZE);
+
+      if (currentIndex >= 0) {
+        items[currentIndex].cropCoords = [sx, sy];
+      }
+
+      // Gambar mini preview beserta kotak hijau
+      rawPreviewCtx.fillStyle = "#000";
+      rawPreviewCtx.fillRect(0, 0, rawPreviewCanvas.width, rawPreviewCanvas.height);
+      const scale = Math.min(rawPreviewCanvas.width / w, rawPreviewCanvas.height / h);
+      const dw = w * scale;
+      const dh = h * scale;
+      const ox = (rawPreviewCanvas.width - dw) / 2;
+      const oy = (rawPreviewCanvas.height - dh) / 2;
+      rawPreviewCtx.drawImage(currentRawImage, ox, oy, dw, dh);
+
+      rawPreviewCtx.strokeStyle = "#2ed573";
+      rawPreviewCtx.lineWidth = 2;
+      rawPreviewCtx.strokeRect(
+        ox + sx * scale,
+        oy + sy * scale,
+        CROP_SIZE * scale,
+        CROP_SIZE * scale
+      );
+
+      document.getElementById("dimInfoText").textContent =
+        `Asli: ${w}×${h} | X:${sx}, Y:${sy}`;
+    }
+
+    document.getElementById("cropModeSelect").addEventListener("change", () => {
+      computeCropByMode();
+      applyCropToCanvas();
+    });
+
+    document.getElementById("inputStartX").addEventListener("input", () => {
+      document.getElementById("cropModeSelect").value = "custom";
+      applyCropToCanvas();
+    });
+
+    document.getElementById("inputStartY").addEventListener("input", () => {
+      document.getElementById("cropModeSelect").value = "custom";
+      applyCropToCanvas();
+    });
+
+    // Geser kotak hijau langsung di mini preview
+    let draggingPreview = false;
+    function handlePreviewPointer(e) {
+      if (!currentRawImage) return;
+      const rect = rawPreviewCanvas.getBoundingClientRect();
+      const w = currentRawImage.naturalWidth;
+      const h = currentRawImage.naturalHeight;
+      const scale = Math.min(rawPreviewCanvas.width / w, rawPreviewCanvas.height / h);
+      const dw = w * scale;
+      const dh = h * scale;
+      const ox = (rawPreviewCanvas.width - dw) / 2;
+      const oy = (rawPreviewCanvas.height - dh) / 2;
+
+      const px = e.clientX - rect.left - ox;
+      const py = e.clientY - rect.top - oy;
+      const cx = (px / scale) - CROP_SIZE / 2;
+      const cy = (py / scale) - CROP_SIZE / 2;
+
+      document.getElementById("cropModeSelect").value = "custom";
+      document.getElementById("inputStartX").value = Math.max(0, Math.min(w - CROP_SIZE, Math.round(cx)));
+      document.getElementById("inputStartY").value = Math.max(0, Math.min(h - CROP_SIZE, Math.round(cy)));
+      applyCropToCanvas();
+    }
+    rawPreviewCanvas.addEventListener("pointerdown", e => { draggingPreview = true; handlePreviewPointer(e); });
+    rawPreviewCanvas.addEventListener("pointermove", e => { if (draggingPreview) handlePreviewPointer(e); });
+    window.addEventListener("pointerup", () => { draggingPreview = false; });
+
+    /*************************************************************************
+     * 3. PENGGAMBARAN MASKER DENGAN STYLUS PEN & ZOOM/PAN
+     *************************************************************************/
+    const overlayImgData = overlayCtx.createImageData(CROP_SIZE, CROP_SIZE);
+
+    function renderOverlay() {
+      const data = overlayImgData.data;
+      if (!showOverlay) {
+        overlayCtx.clearRect(0, 0, CROP_SIZE, CROP_SIZE);
+        return;
+      }
+      const alphaByte = Math.round(overlayAlpha * 255);
+      for (let i = 0; i < CROP_SIZE * CROP_SIZE; i++) {
+        const v = currentMask[i];
+        const p = i * 4;
+        if (v === 1) {
+          data[p] = 0;
+          data[p + 1] = 215;
+          data[p + 2] = 255;
+          data[p + 3] = alphaByte;
+        } else if (v === 2) {
+          data[p] = 255;
+          data[p + 1] = 55;
+          data[p + 2] = 65;
+          data[p + 3] = alphaByte;
+        } else {
+          data[p + 3] = 0;
+        }
+      }
+      overlayCtx.putImageData(overlayImgData, 0, 0);
+    }
+
+    function drawDisk(cx, cy, radius, val) {
+      const r = Math.max(0, (radius - 1) / 2);
+      const rSq = (r + 0.35) * (r + 0.35);
+      const minX = Math.max(0, Math.floor(cx - r - 1));
+      const maxX = Math.min(CROP_SIZE - 1, Math.ceil(cx + r + 1));
+      const minY = Math.max(0, Math.floor(cy - r - 1));
+      const maxY = Math.min(CROP_SIZE - 1, Math.ceil(cy + r + 1));
+
+      for (let y = minY; y <= maxY; y++) {
+        const dy = y - cy;
+        const row = y * CROP_SIZE;
+        for (let x = minX; x <= maxX; x++) {
+          const dx = x - cx;
+          if (dx * dx + dy * dy <= rSq) {
+            currentMask[row + x] = val;
+          }
+        }
+      }
+    }
+
+    function drawLineOnMask(x0, y0, x1, y1, val, thickness) {
+      const dist = Math.hypot(x1 - x0, y1 - y0);
+      const steps = Math.max(1, Math.ceil(dist * 2));
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const x = Math.round(x0 + (x1 - x0) * t);
+        const y = Math.round(y0 + (y1 - y0) * t);
+        drawDisk(x, y, thickness, val);
+      }
+    }
+
+    function pushUndo() {
+      undoStack.push(new Uint8Array(currentMask));
+      if (undoStack.length > 25) undoStack.shift();
+    }
+
+    function undoStroke() {
+      if (!undoStack.length) return;
+      currentMask = undoStack.pop();
+      renderOverlay();
+      updateMaskStats();
+      setStatus("Undo berhasil.");
+    }
+
+    function clearCurrentMask() {
+      pushUndo();
+      currentMask.fill(0);
+      renderOverlay();
+      updateMaskStats();
+      setStatus("Label direset (Clear).");
+    }
+
+    const viewport = document.getElementById("viewport");
+    const stage = document.getElementById("stage");
+    let activePointers = new Map();
+    let isDrawing = false;
+    let isPanning = false;
+    let lastImgPt = null;
+    let lastPanCenter = null;
+    let lastPinchDist = null;
+
+    function updateStageTransform() {
+      stage.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`;
+    }
+
+    function adjustZoom(delta) {
+      zoomLevel = Math.max(0.5, Math.min(6.0, zoomLevel + delta));
+      updateStageTransform();
+    }
+
+    function resetView() {
+      zoomLevel = 1.0;
+      panX = 0;
+      panY = 0;
+      updateStageTransform();
+    }
+
+    function clientToStageCoords(clientX, clientY) {
+      const rect = stage.getBoundingClientRect();
+      const x = Math.floor(((clientX - rect.left) / rect.width) * CROP_SIZE);
+      const y = Math.floor(((clientY - rect.top) / rect.height) * CROP_SIZE);
+      return [
+        Math.max(0, Math.min(CROP_SIZE - 1, x)),
+        Math.max(0, Math.min(CROP_SIZE - 1, y))
+      ];
+    }
+
+    viewport.addEventListener("pointerdown", e => {
+      if (!currentRawImage) return;
+      viewport.setPointerCapture(e.pointerId);
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
+
+      const penOnly = document.getElementById("chkPenOnly").checked;
+
+      // Jika 2 jari menyentuh layar -> Pinch Zoom / Pan
+      if (activePointers.size === 2) {
+        isDrawing = false;
+        isPanning = true;
+        const pts = Array.from(activePointers.values());
+        lastPanCenter = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+        lastPinchDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+        return;
+      }
+
+      // Jika Mode Geser aktif, atau Mode Khusus Pen aktif tapi yang menyentuh adalah jari (touch)
+      if (isPanMode || (penOnly && e.pointerType === "touch")) {
+        isPanning = true;
+        lastPanCenter = { x: e.clientX, y: e.clientY };
+        return;
+      }
+
+      // Mulai menggambar dengan Stylus Pen / Mouse / Sentuhan
+      pushUndo();
+      isDrawing = true;
+      const pt = clientToStageCoords(e.clientX, e.clientY);
+      lastImgPt = pt;
+      // Tombol samping stylus (button === 2 atau 5) otomatis jadi Eraser
+      const drawVal = (e.button === 2 || e.buttons === 2 || e.buttons === 32) ? 0 : activeClass;
+      drawLineOnMask(pt[0], pt[1], pt[0], pt[1], drawVal, brushSize);
+      renderOverlay();
+    });
+
+    viewport.addEventListener("pointermove", e => {
+      if (!activePointers.has(e.pointerId)) return;
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
+
+      if (activePointers.size === 2) {
+        const pts = Array.from(activePointers.values());
+        const center = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+        const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+
+        if (lastPanCenter) {
+          panX += center.x - lastPanCenter.x;
+          panY += center.y - lastPanCenter.y;
+        }
+        if (lastPinchDist && lastPinchDist > 10) {
+          const scaleFactor = dist / lastPinchDist;
+          zoomLevel = Math.max(0.5, Math.min(6.0, zoomLevel * scaleFactor));
+        }
+        lastPanCenter = center;
+        lastPinchDist = dist;
+        updateStageTransform();
+        return;
+      }
+
+      if (isPanning && lastPanCenter) {
+        panX += e.clientX - lastPanCenter.x;
+        panY += e.clientY - lastPanCenter.y;
+        lastPanCenter = { x: e.clientX, y: e.clientY };
+        updateStageTransform();
+        return;
+      }
+
+      if (isDrawing && lastImgPt) {
+        const pt = clientToStageCoords(e.clientX, e.clientY);
+        const drawVal = (e.buttons === 2 || e.buttons === 32) ? 0 : activeClass;
+        drawLineOnMask(lastImgPt[0], lastImgPt[1], pt[0], pt[1], drawVal, brushSize);
+        lastImgPt = pt;
+        renderOverlay();
+      }
+    });
+
+    function endPointer(e) {
+      activePointers.delete(e.pointerId);
+      if (activePointers.size < 2) {
+        lastPinchDist = null;
+      }
+      if (activePointers.size === 0) {
+        if (isDrawing) updateMaskStats();
+        isDrawing = false;
+        isPanning = false;
+        lastImgPt = null;
+        lastPanCenter = null;
+      }
+    }
+
+    viewport.addEventListener("pointerup", endPointer);
+    viewport.addEventListener("pointercancel", endPointer);
+
+    /*************************************************************************
+     * 4. KONTROL UI & EKSPOR DATASET (PNG MURNI 0, 1, 2 & ZIP)
+     *************************************************************************/
+    function setClass(cls) {
+      activeClass = cls;
+      isPanMode = false;
+      document.getElementById("btnClass1").classList.toggle("active-tool", cls === 1);
+      document.getElementById("btnClass2").classList.toggle("active-tool", cls === 2);
+      document.getElementById("btnClass0").classList.toggle("active-tool", cls === 0);
+      document.getElementById("btnPanMode").classList.remove("active-tool");
+    }
+
+    function togglePanMode() {
+      isPanMode = !isPanMode;
+      document.getElementById("btnPanMode").classList.toggle("active-tool", isPanMode);
+      if (isPanMode) {
+        document.getElementById("btnClass1").classList.remove("active-tool");
+        document.getElementById("btnClass2").classList.remove("active-tool");
+        document.getElementById("btnClass0").classList.remove("active-tool");
+      } else {
+        setClass(activeClass);
+      }
+    }
+
+    function toggleOverlay() {
+      showOverlay = !showOverlay;
+      document.getElementById("btnToggleOverlay").textContent = `👁️ Overlay: ${showOverlay ? "ON" : "OFF"}`;
+      renderOverlay();
+    }
+
+    document.getElementById("brushSlider").addEventListener("input", e => {
+      brushSize = parseInt(e.target.value) || 2;
+      document.getElementById("brushValLabel").textContent = brushSize;
+    });
+
+    document.getElementById("alphaSlider").addEventListener("input", e => {
+      overlayAlpha = (parseInt(e.target.value) || 75) / 100;
+      document.getElementById("alphaValLabel").textContent = e.target.value;
+      renderOverlay();
+    });
+
+    function updateMaskStats() {
+      let c1 = 0, c2 = 0;
+      for (let i = 0; i < currentMask.length; i++) {
+        if (currentMask[i] === 1) c1++;
+        else if (currentMask[i] === 2) c2++;
+      }
+      document.getElementById("statsText").textContent = `Class 1: ${c1} px | Class 2: ${c2} px`;
+    }
+
+    function setStatus(msg) {
+      document.getElementById("statusText").textContent = msg;
+    }
+
+    async function getCanvasPngBytes(canvas) {
+      return new Promise(resolve => {
+        canvas.toBlob(async blob => {
+          const buf = await blob.arrayBuffer();
+          resolve(new Uint8Array(buf));
+        }, "image/png");
+      });
+    }
+
+    function triggerDownload(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 3000);
+    }
+
+    async function saveCurrentImage(downloadIndividual = true) {
+      if (currentIndex < 0 || !currentRawImage) {
+        alert("Pilih gambar OCT terlebih dahulu.");
+        return;
+      }
+      const item = items[currentIndex];
+      item.maskUint8 = new Uint8Array(currentMask);
+      item.cropPngBytes = await getCanvasPngBytes(imgCanvas);
+      const maskPngBytes = encodeGrayscale8BitPNG(item.maskUint8, CROP_SIZE, CROP_SIZE);
+
+      // Jika terhubung ke server Laptop, simpan langsung ke folder Output di Laptop!
+      if (isServerMode) {
+        try {
+          const res = await fetch("/api/save", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              stem: item.stem,
+              crop_coords: item.cropCoords || [244, 0],
+              mask_values: Array.from(item.maskUint8)
+            })
+          });
+          if (res.ok) {
+            item.saved = true;
+            renderFileList();
+            setStatus(`✅ Tersimpan langsung di Laptop: ${item.stem}_crop.png & ${item.stem}_mask.png`);
+            return;
+          }
+        } catch (e) {}
+      }
+
+      item.saved = true;
+      renderFileList();
+
+      if (downloadIndividual) {
+        triggerDownload(new Blob([item.cropPngBytes], { type: "image/png" }), `${item.stem}_crop.png`);
+        setTimeout(() => {
+          triggerDownload(new Blob([maskPngBytes], { type: "image/png" }), `${item.stem}_mask.png`);
+        }, 250);
+        setStatus(`✅ Tersimpan: ${item.stem}_crop.png & ${item.stem}_mask.png (Piksel murni 0,1,2)`);
+      }
+    }
+
+    async function exportAllAsZip() {
+      if (currentIndex >= 0 && currentRawImage) {
+        await saveCurrentImage(false);
+      }
+      const savedItems = items.filter(it => it.saved && it.maskUint8 && it.cropPngBytes);
+      if (!savedItems.length) {
+        alert("Belum ada gambar yang disimpan. Tekan 'Simpan Gambar Ini' terlebih dahulu.");
+        return;
+      }
+
+      setStatus("Mengemas dataset ke dalam file ZIP...");
+      const zipEntries = [];
+      for (const it of savedItems) {
+        const maskPng = encodeGrayscale8BitPNG(it.maskUint8, CROP_SIZE, CROP_SIZE);
+        zipEntries.push({ name: `${it.stem}_crop.png`, data: it.cropPngBytes });
+        zipEntries.push({ name: `${it.stem}_mask.png`, data: maskPng });
+        zipEntries.push({ name: `images/${it.stem}_crop.png`, data: it.cropPngBytes });
+        zipEntries.push({ name: `masks/${it.stem}_mask.png`, data: maskPng });
+      }
+
+      const zipBlob = buildZipFile(zipEntries);
+      triggerDownload(zipBlob, "OCT_Labeled_Dataset_Fase1.zip");
+      setStatus(`✅ Berhasil mengekspor ${savedItems.length} pasang Crop+Mask ke OCT_Labeled_Dataset_Fase1.zip`);
+    }
+
+    async function prevImage() {
+      if (currentIndex > 0) {
+        await selectItem(currentIndex - 1);
+      }
+    }
+
+    async function nextImage() {
+      if (currentIndex < items.length - 1) {
+        await selectItem(currentIndex + 1);
+      }
+    }
+
+    // PWA Install Prompt untuk Redmi Pad 2
+    let deferredPrompt = null;
+    window.addEventListener("beforeinstallprompt", e => {
+      e.preventDefault();
+      deferredPrompt = e;
+      document.getElementById("installBanner").style.display = "flex";
+    });
+
+    document.getElementById("btnInstallPwa").addEventListener("click", async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+      deferredPrompt = null;
+      document.getElementById("installBanner").style.display = "none";
+    });
+
+    if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+      navigator.serviceWorker.register("sw.js").catch(() => {});
+    }
+  </script>
+</body>
+</html>
