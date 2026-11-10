@@ -515,9 +515,9 @@ class AnnotationCanvas(QLabel):
         self.undo_stack: List[np.ndarray] = []
         self.max_undo: int = 25
 
-        # Status alat gambar (Aplikasi v2: Brush 3px untuk mencegah vanishing gradient di U-Net)
+        # Status alat gambar (Default Brush 2px)
         self.active_class: int = 1  # 1: top SC, 2: bot SC, 3: end ED, 0: Eraser
-        self.brush_size: int = 3    # Default ketebalan 3 piksel (spesifikasi v2)
+        self.brush_size: int = 2    # Default ketebalan 2 piksel
         self.overlay_alpha: float = 0.75
         self.show_overlay: bool = True
         self.show_slice_guide: bool = False
@@ -1037,16 +1037,16 @@ class OCTLabelingApp(QMainWindow):
         sep.setStyleSheet("color: #2c313c;")
         tools_layout.addWidget(sep)
 
-        # Ketebalan Brush (Default 3px untuk mencegah vanishing gradient di pooling layer U-Net)
+        # Ketebalan Brush (Default 2px)
         brush_row = QHBoxLayout()
         brush_row.setSpacing(8)
-        brush_row.addWidget(QLabel("Ketebalan Brush (U-Net 3px):"))
+        brush_row.addWidget(QLabel("Ketebalan Brush (Default 2px):"))
         self.slider_brush = QSlider(Qt.Orientation.Horizontal)
         self.slider_brush.setRange(1, 25)
-        self.slider_brush.setValue(3)
+        self.slider_brush.setValue(2)
         self.spin_brush = QSpinBox()
         self.spin_brush.setRange(1, 25)
-        self.spin_brush.setValue(3)
+        self.spin_brush.setValue(2)
         self.spin_brush.setSuffix(" px")
         self.spin_brush.setFixedWidth(68)
 
@@ -1173,6 +1173,18 @@ class OCTLabelingApp(QMainWindow):
         )
         self.btn_random.clicked.connect(self.random_slice)
 
+        self.slice_selector_widget = QWidget()
+        slice_sel_layout = QVBoxLayout(self.slice_selector_widget)
+        slice_sel_layout.setContentsMargins(0, 0, 0, 0)
+        slice_sel_layout.setSpacing(2)
+        lbl_slice_sel = QLabel("🎞️ Pilih / Revisi Slice Titik Ini:")
+        lbl_slice_sel.setStyleSheet("color: #b0b8c4; font-size: 11px;")
+        self.combo_point_slice = QComboBox()
+        self.combo_point_slice.currentIndexChanged.connect(self._on_point_slice_selected)
+        slice_sel_layout.addWidget(lbl_slice_sel)
+        slice_sel_layout.addWidget(self.combo_point_slice)
+        self.slice_selector_widget.setVisible(False)
+
         self.sibling_nav_widget = QWidget()
         sib_row = QHBoxLayout(self.sibling_nav_widget)
         sib_row.setContentsMargins(0, 0, 0, 0)
@@ -1199,12 +1211,13 @@ class OCTLabelingApp(QMainWindow):
         list_layout.addWidget(self.lbl_progress)
         list_layout.addWidget(self.progress_bar)
         list_layout.addWidget(self.btn_random)
+        list_layout.addWidget(self.slice_selector_widget)
         list_layout.addWidget(self.sibling_nav_widget)
         list_layout.addWidget(self.file_list_widget, stretch=1)
         right_layout.addWidget(list_group, stretch=1)
 
-        # 5. Grup Navigasi & Eksekusi
-        nav_group = QGroupBox("5. Navigasi && Eksekusi")
+        # 5. Grup Navigasi, Simpan & Revisi
+        nav_group = QGroupBox("5. Navigasi, Simpan && Revisi")
         nav_layout = QVBoxLayout(nav_group)
         nav_layout.setSpacing(8)
 
@@ -1225,6 +1238,16 @@ class OCTLabelingApp(QMainWindow):
         self.chk_autosave.setChecked(False)
         nav_layout.addWidget(self.chk_autosave)
 
+        self.lbl_revision_badge = QLabel(
+            "✏️ Mode Revisi: Sampel ini sudah tersimpan. Edit garis lalu tekan Simpan Revisi untuk menghapus & mengganti file lama."
+        )
+        self.lbl_revision_badge.setWordWrap(True)
+        self.lbl_revision_badge.setStyleSheet(
+            "background-color: #3b2506; border: 1px solid #d97706; color: #fcd34d; border-radius: 6px; padding: 6px; font-size: 11px;"
+        )
+        self.lbl_revision_badge.setVisible(False)
+        nav_layout.addWidget(self.lbl_revision_badge)
+
         self.btn_save = QPushButton("SIMPAN CEPAT: Crop + Mask (Ctrl+S)")
         self.btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_save.setMinimumHeight(40)
@@ -1235,6 +1258,16 @@ class OCTLabelingApp(QMainWindow):
         )
         self.btn_save.clicked.connect(self.save_current)
         nav_layout.addWidget(self.btn_save)
+
+        self.btn_delete_saved = QPushButton("🗑️ Hapus Gambar Tersimpan (Revisi Ulang)")
+        self.btn_delete_saved.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_delete_saved.setStyleSheet(
+            "QPushButton { color: #fca5a5; border-color: #7f1d1d; background-color: #2a181b; font-weight: 600; }"
+            "QPushButton:hover { background-color: #3f1d24; border-color: #b91c1c; }"
+        )
+        self.btn_delete_saved.setVisible(False)
+        self.btn_delete_saved.clicked.connect(self.delete_saved_revision)
+        nav_layout.addWidget(self.btn_delete_saved)
 
         right_layout.addWidget(nav_group)
 
@@ -1761,6 +1794,45 @@ class OCTLabelingApp(QMainWindow):
         self.lbl_raw_dim.setText(f"Asli: {raw_w} × {raw_h} px")
         self.lbl_crop_dim.setText(f"ROI: X[{sx}:{ex}], Y[{sy}:{ey}]")
         self._update_mask_stats()
+        self._update_revision_ui(existing_mask is not None)
+
+        # Perbarui dropdown slice untuk titik aktif
+        pt_slices: List[Path] = []
+        for pt_files in self.point_groups.values():
+            if src_path in pt_files:
+                pt_slices = pt_files
+                break
+        if len(pt_slices) > 1:
+            self.slice_selector_widget.setVisible(True)
+            self.combo_point_slice.blockSignals(True)
+            self.combo_point_slice.clear()
+            active_s_idx = 0
+            for s_idx, sp in enumerate(pt_slices):
+                label_txt = f"{s_idx + 1}. {sp.name}" + (" (Aktif)" if sp == src_path else "")
+                self.combo_point_slice.addItem(label_txt, sp.name)
+                if sp == src_path:
+                    active_s_idx = s_idx
+            self.combo_point_slice.setCurrentIndex(active_s_idx)
+            self.combo_point_slice.blockSignals(False)
+        else:
+            self.slice_selector_widget.setVisible(False)
+
+    def _update_revision_ui(self, is_labeled: bool) -> None:
+        self.lbl_revision_badge.setVisible(is_labeled)
+        self.btn_delete_saved.setVisible(is_labeled)
+        if is_labeled:
+            self.btn_save.setText("💾 SIMPAN REVISI: Ganti File Lama (Ctrl+S)")
+            self.btn_save.setStyleSheet(
+                "QPushButton { background-color: #d97706; color: white; font-weight: bold; font-size: 12px; border: 1px solid #f59e0b; border-radius: 6px; }"
+                "QPushButton:hover { background-color: #b45309; }"
+            )
+        else:
+            self.btn_save.setText("SIMPAN CEPAT: Crop + Mask (Ctrl+S)")
+            self.btn_save.setStyleSheet(
+                "QPushButton { background-color: #2b8a3e; color: white; font-weight: bold; font-size: 12px; border: 1px solid #37b24d; border-radius: 6px; }"
+                "QPushButton:hover { background-color: #2f9e44; }"
+                "QPushButton:pressed { background-color: #237032; }"
+            )
 
     def _apply_current_crop(self) -> None:
         """Memotong ulang gambar mentah saat ini sesuai koordinat terbaru."""
@@ -2025,13 +2097,20 @@ class OCTLabelingApp(QMainWindow):
         save_stem = self._get_save_stem(src_path)
         crop_path, mask_path = self._get_output_paths(src_path)
 
-        # Jika Mode 1 Sampel per Titik aktif, hapus output slice lain pada titik yang sama agar dijamin hanya 1 sampel/titik
+        # Deteksi apakah titik/gambar ini sebelumnya sudah memiliki label tersimpan (Mode Revisi)
+        was_revision = self._is_file_labeled(src_path)
         if self.chk_one_sample_per_point.isChecked():
             for pt_key, pt_files in self.point_groups.items():
                 if src_path in pt_files:
+                    if any(self._is_file_labeled(p) for p in pt_files):
+                        was_revision = True
                     self.selected_point_sample[pt_key] = src_path
-                    self._delete_point_outputs(pt_files, except_src=src_path)
+                    # Hapus seluruh file lama milik titik ini sebelum menulis gambar & mask revisi baru
+                    self._delete_point_outputs(pt_files)
                     break
+        else:
+            if was_revision:
+                self._delete_source_outputs(src_path)
 
         clean_mask = np.clip(self.canvas.mask, 0, MAX_CLASS_ID).astype(np.uint8)
         overlay_vis = render_reference_overlay(self.canvas.roi_bgr, clean_mask)
@@ -2110,9 +2189,15 @@ class OCTLabelingApp(QMainWindow):
         if ok_crop and ok_mask:
             self.is_dirty = False
             self._refresh_file_list_status()
+            self._update_revision_ui(True)
             unique_vals = np.unique(clean_mask).tolist()
+            action_prefix = (
+                "✓ Revisi Tersimpan (File lama dihapus & diganti)"
+                if was_revision
+                else "✓ Tersimpan"
+            )
             self.status_bar.showMessage(
-                f"Tersimpan: {crop_path.name} & {mask_path.name} (Nilai unik mask: {unique_vals})"
+                f"{action_prefix}: {crop_path.name} & {mask_path.name} (Nilai unik mask: {unique_vals})"
             )
             return True
         else:
@@ -2204,6 +2289,79 @@ class OCTLabelingApp(QMainWindow):
                         f"🎲 Titik [{pt_tag}]: Melompat ke {new_choice.name} (Status direset: Belum Selesai)"
                     )
                     return
+
+    def _on_point_slice_selected(self, combo_idx: int) -> None:
+        """Memilih slice tertentu di dalam titik aktif untuk melakukan revisi/penggantian sampel."""
+        if combo_idx < 0 or not self.image_files or self.current_index < 0:
+            return
+        slice_name = self.combo_point_slice.itemData(combo_idx)
+        if not slice_name:
+            return
+        curr_path = self.image_files[self.current_index]
+        if curr_path.name == slice_name:
+            return
+
+        self.is_dirty = False
+        target_pt_key = None
+        for pt_key, pt_files in self.point_groups.items():
+            if curr_path in pt_files:
+                target_pt_key = pt_key
+                break
+        if target_pt_key is None:
+            return
+
+        pt_files = self.point_groups[target_pt_key]
+        chosen_path = next((p for p in pt_files if p.name == slice_name), None)
+        if chosen_path is None:
+            return
+
+        # Hapus hasil simpan slice sebelumnya pada titik ini agar diganti dengan slice baru
+        self._delete_point_outputs(pt_files)
+        self.selected_point_sample[target_pt_key] = chosen_path
+        pt_tag = self._get_point_tag(chosen_path)
+
+        if self.chk_one_sample_per_point.isChecked():
+            self.image_files[self.current_index] = chosen_path
+            self._refresh_file_list_status()
+            self.load_image_at_index(self.current_index)
+            self.status_bar.showMessage(
+                f"🎞️ Titik [{pt_tag}]: Beralih ke slice {chosen_path.name} (Siap dilabeli / direvisi)"
+            )
+        else:
+            self._refresh_file_list_status()
+            if chosen_path in self.image_files:
+                self.file_list_widget.setCurrentRow(self.image_files.index(chosen_path))
+
+    def delete_saved_revision(self) -> None:
+        """Menghapus gambar & mask yang sudah tersimpan sebelumnya pada titik/sampel aktif agar dapat direvisi ulang."""
+        if not self.image_files or self.current_index < 0:
+            return
+        src_path = self.image_files[self.current_index]
+        pt_tag = self._get_point_tag(src_path)
+        reply = QMessageBox.question(
+            self,
+            "Konfirmasi Hapus & Revisi Ulang",
+            f"Hapus gambar & mask yang sudah tersimpan pada titik [{pt_tag}] ({src_path.name}) agar bisa direvisi dari awal?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        if self.chk_one_sample_per_point.isChecked():
+            for _, pt_files in self.point_groups.items():
+                if src_path in pt_files:
+                    self._delete_point_outputs(pt_files)
+                    break
+        else:
+            self._delete_source_outputs(src_path)
+
+        self.canvas.clear_mask()
+        self.is_dirty = False
+        self._refresh_file_list_status()
+        self._update_revision_ui(False)
+        self.status_bar.showMessage(
+            f"🗑️ Revisi [{pt_tag}]: Gambar & mask tersimpan sebelumnya berhasil dihapus. Silakan gambar label baru lalu Simpan."
+        )
 
     def switch_sibling_point(self, delta: int) -> None:
         """Berpindah ke folder titik saudara berikutnya/sebelumnya di folder induk dataset."""

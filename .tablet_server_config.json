@@ -1,0 +1,6 @@
+{
+  "input_dir": "D:\\kuliah\\TEEP\\skin_thickness\\dataset\\alehandL.bin",
+  "output_dir": "D:\\kuliah\\TEEP\\skin_thickness\\preproc-output\\alehandL",
+  "subfolder_mode": true,
+  "one_sample_per_point": true
+}
