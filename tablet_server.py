@@ -537,6 +537,95 @@ class ServerState:
 
             return False, "Titik tidak ditemukan.", idx
 
+    def select_point_slice(
+        self, current_index: int, slice_filename: str
+    ) -> Tuple[bool, str, int]:
+        """
+        Memilih slice tertentu di dalam titik aktif untuk melakukan revisi/penggantian sampel:
+        - Menghapus file hasil simpan sebelumnya pada titik tersebut.
+        - Mengganti sampel aktif titik tersebut ke slice yang dipilih.
+        """
+        with self.lock:
+            if not self.image_files:
+                return False, "Belum ada gambar yang dimuat.", -1
+
+            idx = max(0, min(len(self.image_files) - 1, current_index))
+            cur_path = self.image_files[idx]
+
+            target_pt_key = None
+            for pt_key, pt_files in self.point_groups.items():
+                if cur_path in pt_files:
+                    target_pt_key = pt_key
+                    break
+
+            if target_pt_key is None:
+                return False, "Titik tidak ditemukan.", idx
+
+            pt_files = self.point_groups[target_pt_key]
+            chosen_path = None
+            for p in pt_files:
+                if p.name == slice_filename:
+                    chosen_path = p
+                    break
+
+            if chosen_path is None:
+                return False, f"Slice '{slice_filename}' tidak ditemukan di titik ini.", idx
+
+            if chosen_path != cur_path:
+                # Hapus hasil simpan slice sebelumnya pada titik ini agar diganti dengan slice baru
+                self._delete_point_outputs(pt_files)
+
+            self.selected_point_sample[target_pt_key] = chosen_path
+            self.cached_index = -1
+            self.cached_raw_img = None
+            ptag = self._get_point_tag(chosen_path)
+
+            if self.one_sample_per_point:
+                self.image_files[idx] = chosen_path
+                return (
+                    True,
+                    f"🎞️ Titik [{ptag}]: Beralih ke slice {chosen_path.name} (Siap dilabeli / direvisi)",
+                    idx,
+                )
+            else:
+                chosen_idx = (
+                    self.image_files.index(chosen_path)
+                    if chosen_path in self.image_files
+                    else idx
+                )
+                return (
+                    True,
+                    f"🎞️ Titik [{ptag}]: Beralih ke slice {chosen_path.name}",
+                    chosen_idx,
+                )
+
+    def delete_saved_revision(self, current_index: int) -> Tuple[bool, str, Dict]:
+        """
+        Menghapus gambar & mask yang sudah tersimpan sebelumnya pada titik/sampel aktif
+        agar operator dapat melakukan revisi dari awal.
+        """
+        with self.lock:
+            if not self.image_files or current_index < 0 or current_index >= len(self.image_files):
+                return False, "Belum ada gambar yang dipilih.", {}
+
+            src_path = self.image_files[current_index]
+            ptag = self._get_point_tag(src_path)
+
+            if self.one_sample_per_point:
+                for _, pt_files in self.point_groups.items():
+                    if src_path in pt_files:
+                        self._delete_point_outputs(pt_files)
+                        break
+            else:
+                self._delete_source_outputs(src_path)
+
+        status_dict = self.get_status_dict()
+        return (
+            True,
+            f"🗑️ Revisi [{ptag}]: Gambar & mask tersimpan sebelumnya berhasil dihapus. Silakan gambar label baru lalu Simpan.",
+            status_dict,
+        )
+
     def switch_sibling_point(self, delta: int) -> Tuple[bool, str]:
         """Berpindah ke folder titik sebelumnya/berikutnya di dalam folder dataset."""
         with self.lock:
@@ -721,11 +810,18 @@ class ServerState:
                 except Exception:
                     pass
 
+            point_slices: List[str] = []
+            for pt_files in self.point_groups.values():
+                if src_path in pt_files:
+                    point_slices = [p.name for p in pt_files]
+                    break
+
             return {
                 "index": index,
                 "name": self.get_file_display_name(src_path),
                 "raw_name": src_path.name,
                 "point_tag": self._get_point_tag(src_path),
+                "point_slices": point_slices,
                 "raw_w": raw_w,
                 "raw_h": raw_h,
                 "sx": sx,
@@ -770,13 +866,20 @@ class ServerState:
             src_path = self.image_files[index]
             save_stem = self._get_save_stem(src_path)
 
-            # Jika Mode 1 Sampel per Titik aktif, hapus output slice lain pada titik yang sama agar dijamin hanya 1 sampel/titik
+            # Deteksi apakah titik/gambar ini sebelumnya sudah memiliki label tersimpan (Mode Revisi)
+            was_revision = self.is_file_labeled(src_path)
             if self.one_sample_per_point:
                 for pt_key, pt_files in self.point_groups.items():
                     if src_path in pt_files:
+                        if any(self.is_file_labeled(p) for p in pt_files):
+                            was_revision = True
                         self.selected_point_sample[pt_key] = src_path
-                        self._delete_point_outputs(pt_files, except_src=src_path)
+                        # Hapus seluruh file lama milik titik ini sebelum menulis gambar & mask revisi baru
+                        self._delete_point_outputs(pt_files)
                         break
+            else:
+                if was_revision:
+                    self._delete_source_outputs(src_path)
 
             sx, sy, ex, ey = compute_crop_coords(
                 raw_img,
@@ -895,14 +998,20 @@ class ServerState:
                         labeled_points += 1
 
             ptag = self._get_point_tag(src_path)
+            action_prefix = (
+                f"Revisi Tersimpan [{ptag}] (File lama dihapus & diganti)"
+                if was_revision
+                else f"Tersimpan [{ptag}]"
+            )
             return (
                 True,
-                f"Tersimpan [{ptag}]: {save_stem}_crop.png & {save_stem}_mask.png {unique_vals} (Titik selesai: {labeled_points}/{total_points})",
+                f"{action_prefix}: {save_stem}_crop.png & {save_stem}_mask.png {unique_vals} (Titik selesai: {labeled_points}/{total_points})",
                 {
                     "unique_vals": unique_vals,
                     "c1": c1,
                     "c2": c2,
                     "c3": c3,
+                    "was_revision": was_revision,
                     "labeled_count": labeled_count,
                     "total_files": len(self.image_files),
                     "labeled_points": labeled_points,
@@ -1415,10 +1524,10 @@ INDEX_HTML = r"""<!DOCTYPE html>
 
       <div style="margin-top:8px;">
         <div style="display:flex;justify-content:space-between;font-size:11px;">
-          <span>Ketebalan Brush (U-Net 3px):</span>
-          <strong id="lblBrushVal">3 px</strong>
+          <span>Ketebalan Brush (Default 2px):</span>
+          <strong id="lblBrushVal">2 px</strong>
         </div>
-        <input type="range" id="rngBrush" min="1" max="25" value="3" style="width:100%;" oninput="onBrushChange(this.value)">
+        <input type="range" id="rngBrush" min="1" max="25" value="2" style="width:100%;" oninput="onBrushChange(this.value)">
       </div>
 
       <div style="margin-top:6px;">
@@ -1486,6 +1595,10 @@ INDEX_HTML = r"""<!DOCTYPE html>
       <button id="btnRandomSlice" class="btn-primary" style="width:100%;margin-bottom:6px;background:#6d28d9;border-color:#7c3aed;" onclick="randomSlice()">
         🎲 Ganti Slice Acak (Titik Ini)
       </button>
+      <div id="sliceSelectorBox" style="margin-bottom:6px;display:none;">
+        <div style="font-size:10px;color:var(--text-muted);margin-bottom:2px;">🎞️ Pilih / Revisi Slice Titik Ini:</div>
+        <select id="selPointSlice" onchange="onSelectPointSlice(this.value)" style="padding:4px 6px;font-size:11px;"></select>
+      </div>
       <div id="siblingNavRow" class="row" style="display:none;margin-bottom:6px;">
         <button style="background:#0f766e;border-color:#14b8a6;" onclick="switchSiblingPoint(-1)" title="Pindah ke folder titik sebelumnya">⏮ Titik Sblm</button>
         <button style="background:#0f766e;border-color:#14b8a6;" onclick="switchSiblingPoint(1)" title="Pindah ke folder titik berikutnya">Titik Brkt ⏭</button>
@@ -1494,17 +1607,23 @@ INDEX_HTML = r"""<!DOCTYPE html>
     </div>
 
     <div class="card">
-      <div class="card-title">5. Navigasi &amp; Simpan</div>
+      <div class="card-title">5. Navigasi, Simpan &amp; Revisi</div>
       <div class="row" style="margin-bottom:8px;">
         <button onclick="prevImage()">&laquo; Prev</button>
         <button onclick="nextImage()">Next &raquo;</button>
       </div>
-      <label style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:12px;cursor:pointer;">
+      <label style="display:flex;align-items:center;gap:6px;margin-bottom:6px;font-size:12px;cursor:pointer;">
         <input type="checkbox" id="chkAutoSave" checked>
         Auto-Save saat pindah gambar
       </label>
-      <button class="btn-success" onclick="saveCurrent(true)">
+      <div id="lblRevisionBadge" style="display:none;margin-bottom:6px;padding:6px;border-radius:6px;background:#3b2506;border:1px solid #d97706;color:#fcd34d;font-size:10.5px;line-height:1.35;">
+        ✏️ <strong>Mode Revisi:</strong> Sampel ini sudah tersimpan. Edit garis lalu tekan <strong>Simpan Revisi</strong> untuk menghapus &amp; mengganti file lama.
+      </div>
+      <button id="btnSaveMain" class="btn-success" onclick="saveCurrent(true)">
         💾 SIMPAN KE LAPTOP
+      </button>
+      <button id="btnDeleteSaved" class="btn-danger" style="display:none;width:100%;margin-top:6px;font-size:11px;padding:7px;" onclick="deleteSavedRevision()">
+        🗑️ Hapus Gambar Tersimpan (Revisi Ulang)
       </button>
     </div>
   </div>
@@ -1547,7 +1666,7 @@ const CROP_SIZE = 512;
 let files = [];
 let currentIndex = -1;
 let activeClass = 1;
-let brushSize = 3;
+let brushSize = 2;
 let overlayAlpha = 0.75;
 let zoomLevel = 1.0;
 let isDirty = false;
@@ -1722,13 +1841,51 @@ async function loadImage(index, loadExistingMask = true) {
     updateMaskStats();
   }
 
+  // Perbarui dropdown daftar slice pada titik aktif (untuk memudahkan revisi/ganti slice)
+  const sliceBox = document.getElementById('sliceSelectorBox');
+  const selSlice = document.getElementById('selPointSlice');
+  if (data.point_slices && data.point_slices.length > 1) {
+    sliceBox.style.display = 'block';
+    selSlice.innerHTML = '';
+    data.point_slices.forEach((sName, sIdx) => {
+      const opt = document.createElement('option');
+      opt.value = sName;
+      opt.textContent = `${sIdx + 1}. ${sName}` + (sName === data.raw_name ? ' (Aktif)' : '');
+      if (sName === data.raw_name) opt.selected = true;
+      selSlice.appendChild(opt);
+    });
+  } else {
+    sliceBox.style.display = 'none';
+  }
+
+  updateRevisionUI(Boolean(data.labeled));
+
   // Highlight item aktif di daftar
   const items = document.querySelectorAll('.file-item');
   items.forEach((el, i) => {
     el.classList.toggle('active', i === currentIndex);
     if (i === currentIndex) el.scrollIntoView({ block: 'nearest' });
   });
-  setStatus(`Siap melabeli: ${data.name}`);
+  setStatus(data.labeled ? `✏️ Mode Revisi: ${data.name} (Edit lalu Simpan Revisi untuk mengganti file lama)` : `Siap melabeli: ${data.name}`);
+}
+
+function updateRevisionUI(isLabeled) {
+  const badge = document.getElementById('lblRevisionBadge');
+  const btnSave = document.getElementById('btnSaveMain');
+  const btnDel = document.getElementById('btnDeleteSaved');
+  if (isLabeled) {
+    badge.style.display = 'block';
+    btnSave.textContent = '💾 SIMPAN REVISI (GANTI FILE LAMA)';
+    btnSave.style.background = '#d97706';
+    btnSave.style.borderColor = '#f59e0b';
+    btnDel.style.display = 'block';
+  } else {
+    badge.style.display = 'none';
+    btnSave.textContent = '💾 SIMPAN KE LAPTOP';
+    btnSave.style.background = 'var(--green)';
+    btnSave.style.borderColor = '#37b24d';
+    btnDel.style.display = 'none';
+  }
 }
 
 function drawRawPreview() {
@@ -2119,6 +2276,7 @@ async function saveCurrent(showToast = true) {
     if (out.ok) {
       isDirty = false;
       files[currentIndex].labeled = true;
+      updateRevisionUI(true);
       renderFileList(
         out.stats.labeled_count,
         out.stats.total_files,
@@ -2163,6 +2321,55 @@ async function randomSlice() {
     }
   } catch (e) {
     setStatus('Gagal memilih sampel acak: ' + e.message);
+  }
+}
+
+async function onSelectPointSlice(sliceName) {
+  if (!files || files.length === 0 || !sliceName) return;
+  isDirty = false;
+  try {
+    const res = await fetch('/api/select_point_slice', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index: currentIndex, slice_name: sliceName })
+    });
+    const out = await res.json();
+    if (out.ok) {
+      await fetchStatus(false);
+      await loadImage(out.index, true);
+      setStatus(out.message);
+    }
+  } catch (e) {
+    setStatus('Gagal mengganti slice: ' + e.message);
+  }
+}
+
+async function deleteSavedRevision() {
+  if (currentIndex < 0 || !files[currentIndex]) return;
+  if (!confirm('Hapus gambar & mask yang sudah tersimpan pada titik ini agar bisa direvisi dari awal?')) {
+    return;
+  }
+  try {
+    const res = await fetch('/api/delete_saved', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index: currentIndex })
+    });
+    const out = await res.json();
+    if (out.ok) {
+      isDirty = false;
+      undoStack = [];
+      maskData.fill(0);
+      renderMaskOverlay();
+      updateMaskStats();
+      await fetchStatus(false);
+      updateRevisionUI(false);
+      setStatus(out.message);
+    } else {
+      alert(out.message);
+    }
+  } catch (e) {
+    alert('Gagal menghapus file tersimpan: ' + e.message);
   }
 }
 
@@ -2454,6 +2661,19 @@ class TabletRequestHandler(BaseHTTPRequestHandler):
             idx = int(payload.get("index", 0))
             ok, msg, new_idx = STATE.reroll_point_sample(idx)
             self._send_json({"ok": ok, "message": msg, "index": new_idx})
+            return
+
+        if path == "/api/select_point_slice":
+            idx = int(payload.get("index", 0))
+            slice_name = str(payload.get("slice_name", ""))
+            ok, msg, new_idx = STATE.select_point_slice(idx, slice_name)
+            self._send_json({"ok": ok, "message": msg, "index": new_idx})
+            return
+
+        if path == "/api/delete_saved":
+            idx = int(payload.get("index", 0))
+            ok, msg, st = STATE.delete_saved_revision(idx)
+            self._send_json({"ok": ok, "message": msg, "status": st})
             return
 
         if path == "/api/switch_point":
