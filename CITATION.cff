@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use this software in your research, please cite it using the metadata below."
+type: software
+title: "OCT Skin Layer Preprocessing and Boundary Annotation Suite (Spatial-to-Temporal Domain Adaptation)"
+version: 2.1.0
+date-released: 2026-11-12
+license: BSD-3-Clause
+repository-code: "https://github.com/rakasuryakusuma/preprocessing_labeling_apps"
+authors:
+  - family-names: "Kusuma"
+    given-names: "Raka Surya"
+keywords:
+  - Optical Coherence Tomography
+  - Skin Layer Segmentation
+  - Stratum Corneum
+  - U-Net
+  - Domain Adaptation
