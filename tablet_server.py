@@ -157,7 +157,9 @@ class ServerState:
         self.input_dir: Optional[Path] = None
         self.output_dir: Optional[Path] = None
         self.subfolder_mode: bool = True
-        self.one_sample_per_point: bool = True
+        self.one_sample_per_point: bool = False
+        self.subject_filter: str = ""
+        self.available_subjects: List[Dict] = []
         self.image_files: List[Path] = []
         self.point_groups: Dict[str, List[Path]] = {}
         self.selected_point_sample: Dict[str, Path] = {}
@@ -172,18 +174,55 @@ class ServerState:
 
     @staticmethod
     def _clean_point_tag(folder_name: str) -> str:
-        if folder_name.lower().endswith(".bin"):
-            return folder_name[:-4]
-        return folder_name
+        cleaned = folder_name.strip()
+        if cleaned.lower().endswith(".bin"):
+            cleaned = cleaned[:-4]
+        return cleaned.strip(" .")
+
+    @classmethod
+    def _extract_subject_id(cls, folder_name: str) -> str:
+        ptag = cls._clean_point_tag(folder_name)
+        cleaned = re.sub(
+            r"[_\-\s]*(foot[rl]?|hand[rl]?|arm[rl]?|leg[rl]?|palm[rl]?|wrist[rl]?|calf[rl]?|thigh[rl]?)[_\-\s]*",
+            "",
+            ptag,
+            flags=re.IGNORECASE,
+        ).strip(" _-.")
+        return cleaned.lower() if cleaned else ptag.lower()
+
+    @classmethod
+    def _sanitize_output_dir(cls, p: Path) -> Path:
+        """Menghapus spasi/titik di akhir nama folder karena Windows (WinError 3) melarang spasi di ujung nama direktori."""
+        if p.parent != p:
+            clean_name = cls._clean_point_tag(p.name) if p.name.endswith(" ") or p.name.endswith(".") else p.name.strip(" .")
+            return p.parent / clean_name
+        return p
 
     def _get_point_tag(self, src_path: Path) -> str:
         return self._clean_point_tag(src_path.parent.name)
 
-    def _get_save_stem(self, src_path: Path) -> str:
-        stem = src_path.stem
+    def _get_point_output_dir(self, src_path: Path) -> Path:
+        """
+        Menentukan folder output spesifik untuk titik dari `src_path` (misal `preproc-output/alefootL`)
+        agar konsisten baik saat membuka 1 folder titik, 1 subjek (40 gambar), maupun seluruh dataset (400 gambar).
+        """
+        assert self.output_dir is not None
         ptag = self._get_point_tag(src_path)
-        if self.output_dir is not None:
-            out_name_clean = self._clean_point_tag(self.output_dir.name)
+        out_clean = self._clean_point_tag(self.output_dir.name)
+        if out_clean.lower() == ptag.lower():
+            return self._sanitize_output_dir(self.output_dir)
+        if len(self.point_groups) > 1 or (self.output_dir / ptag).exists():
+            return self._sanitize_output_dir(self.output_dir / ptag)
+        if self.output_dir.parent != self.output_dir and (self.output_dir.parent / ptag).exists():
+            return self._sanitize_output_dir(self.output_dir.parent / ptag)
+        return self._sanitize_output_dir(self.output_dir)
+
+    def _get_save_stem(self, src_path: Path) -> str:
+        stem = src_path.stem.strip()
+        ptag = self._get_point_tag(src_path)
+        target_out = self._get_point_output_dir(src_path) if self.output_dir is not None else None
+        if target_out is not None:
+            out_name_clean = self._clean_point_tag(target_out.name)
             if out_name_clean.lower() == ptag.lower():
                 return stem
         if stem.lower().startswith(ptag.lower()):
@@ -291,9 +330,10 @@ class ServerState:
             in_dir = data.get("input_dir")
             out_dir = data.get("output_dir")
             self.subfolder_mode = bool(data.get("subfolder_mode", True))
-            self.one_sample_per_point = bool(data.get("one_sample_per_point", True))
+            self.one_sample_per_point = bool(data.get("one_sample_per_point", False))
+            self.subject_filter = str(data.get("subject_filter", ""))
             if out_dir:
-                self.output_dir = Path(out_dir)
+                self.output_dir = self._sanitize_output_dir(Path(out_dir))
             if in_dir and Path(in_dir).exists():
                 self.input_dir = Path(in_dir)
                 self._scan_files()
@@ -307,6 +347,7 @@ class ServerState:
                 "output_dir": str(self.output_dir) if self.output_dir else None,
                 "subfolder_mode": self.subfolder_mode,
                 "one_sample_per_point": self.one_sample_per_point,
+                "subject_filter": self.subject_filter,
             }
             CONFIG_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
         except Exception:
@@ -318,12 +359,15 @@ class ServerState:
         output_dir: Optional[str],
         subfolder_mode: Optional[bool] = None,
         one_sample_per_point: Optional[bool] = None,
+        subject_filter: Optional[str] = None,
     ) -> Tuple[bool, str]:
         with self.lock:
             if subfolder_mode is not None:
                 self.subfolder_mode = subfolder_mode
             if one_sample_per_point is not None:
                 self.one_sample_per_point = one_sample_per_point
+            if subject_filter is not None:
+                self.subject_filter = subject_filter.strip().lower()
 
             if input_dir:
                 p_in = Path(input_dir)
@@ -337,13 +381,16 @@ class ServerState:
                     elif old_in is not None:
                         old_tag = self._clean_point_tag(old_in.name)
                         new_tag = self._clean_point_tag(p_in.name)
-                        if self.output_dir.name.lower() == old_tag.lower():
+                        if self._clean_point_tag(self.output_dir.name).lower() == old_tag.lower():
                             self.output_dir = self.output_dir.parent / new_tag
-                        elif self.output_dir.name.lower() == f"{old_in.name.lower()}_output":
-                            self.output_dir = self.output_dir.parent / f"{p_in.name}_output"
+                        elif self.output_dir.name.strip().lower() == f"{old_in.name.strip().lower()}_output":
+                            self.output_dir = self.output_dir.parent / f"{new_tag}_output"
 
             if output_dir:
                 self.output_dir = Path(output_dir)
+
+            if self.output_dir is not None:
+                self.output_dir = self._sanitize_output_dir(self.output_dir)
 
             self.cached_index = -1
             self.cached_raw_img = None
@@ -422,9 +469,39 @@ class ServerState:
             except Exception:
                 pass
 
+        # Bangun daftar subjek yang tersedia (dari point_groups maupun sibling_points)
+        subj_counts: Dict[str, Dict[str, int]] = {}
+        source_for_subjects = (
+            [(s.name, len(self._list_images_in_dir(s))) for s in self.sibling_points]
+            if len(point_groups) == 1 and len(self.sibling_points) > 1
+            else [(k, len(v)) for k, v in point_groups.items()]
+        )
+        for pt_name, n_imgs in source_for_subjects:
+            sid = self._extract_subject_id(pt_name)
+            info = subj_counts.setdefault(sid, {"points": 0, "files": 0})
+            info["points"] += 1
+            info["files"] += n_imgs
+
+        self.available_subjects = [
+            {"id": sid, "points": info["points"], "files": info["files"]}
+            for sid, info in sorted(subj_counts.items())
+        ]
+
+        # Jika filter subjek aktif pada direktori multi-titik, saring point_groups khusus untuk subjek tersebut
+        if len(point_groups) > 1 and self.subject_filter:
+            filtered_pg = {
+                k: v
+                for k, v in point_groups.items()
+                if self._extract_subject_id(k) == self.subject_filter
+            }
+            if filtered_pg:
+                point_groups = filtered_pg
+            else:
+                self.subject_filter = ""
+
         self.point_groups = point_groups
 
-        # Jika mode 1 Sampel per Titik aktif (baik 1 folder titik maupun multi-folder titik):
+        # Jika mode 1 Sampel per Titik aktif:
         # Ambil tepat 1 sampel per titik (prioritaskan yang sudah dilabeli, jika belum ambil 1 acak)
         if len(point_groups) >= 1 and self.one_sample_per_point:
             sampled_list: List[Path] = []
@@ -432,9 +509,6 @@ class ServerState:
                 labeled_in_pt = [p for p in pt_files if self.is_file_labeled(p)]
                 if labeled_in_pt:
                     chosen = labeled_in_pt[0]
-                    # Pastikan hanya 1 sampel yang tersimpan per titik (hapus sisa sampel lama di titik yg sama bila ada)
-                    if len(labeled_in_pt) > 1:
-                        self._delete_point_outputs(pt_files, except_src=chosen)
                     self.selected_point_sample[pt_key] = chosen
                 else:
                     prev_chosen = self.selected_point_sample.get(pt_key)
@@ -446,13 +520,14 @@ class ServerState:
                 sampled_list.append(chosen)
             self.image_files = sampled_list
         else:
+            # Mode Seluruh Data Subject (Default v2.2): Muat SEMUA slice pada setiap titik tanpa menghapus slice lain
             all_files: List[Path] = []
             for pt_key, pt_files in point_groups.items():
                 all_files.extend(pt_files)
                 if pt_files and pt_key not in self.selected_point_sample:
                     labeled_in_pt = [p for p in pt_files if self.is_file_labeled(p)]
                     self.selected_point_sample[pt_key] = (
-                        labeled_in_pt[0] if labeled_in_pt else random.choice(pt_files)
+                        labeled_in_pt[0] if labeled_in_pt else pt_files[0]
                     )
             self.image_files = all_files
 
@@ -498,25 +573,23 @@ class ServerState:
 
             if target_pt_key is not None:
                 pt_files = self.point_groups[target_pt_key]
-                # Hapus semua output tersimpan pada titik ini agar statusnya kembali BELUM SELESAI (0/1)
-                self._delete_point_outputs(pt_files)
-
-                # Catat cur_path sebagai slice yang ditolak agar tidak terpilih berulang sebelum semua slice dicoba
-                rej = self.rejected_point_samples.setdefault(target_pt_key, set())
-                rej.add(cur_path)
-                unseen_candidates = [p for p in pt_files if p not in rej]
-                if not unseen_candidates:
-                    rej.clear()
-                    rej.add(cur_path)
-                    unseen_candidates = [p for p in pt_files if p != cur_path] or pt_files
-
-                new_choice = random.choice(unseen_candidates)
-                self.selected_point_sample[target_pt_key] = new_choice
-                self.cached_index = -1
-                self.cached_raw_img = None
-                ptag = self._get_point_tag(new_choice)
 
                 if self.one_sample_per_point:
+                    # Mode 1 Sampel/Titik: Hapus semua output tersimpan pada titik ini agar statusnya kembali BELUM SELESAI (0/1)
+                    self._delete_point_outputs(pt_files)
+                    rej = self.rejected_point_samples.setdefault(target_pt_key, set())
+                    rej.add(cur_path)
+                    unseen_candidates = [p for p in pt_files if p not in rej]
+                    if not unseen_candidates:
+                        rej.clear()
+                        rej.add(cur_path)
+                        unseen_candidates = [p for p in pt_files if p != cur_path] or pt_files
+
+                    new_choice = random.choice(unseen_candidates)
+                    self.selected_point_sample[target_pt_key] = new_choice
+                    self.cached_index = -1
+                    self.cached_raw_img = None
+                    ptag = self._get_point_tag(new_choice)
                     self.image_files[idx] = new_choice
                     return (
                         True,
@@ -524,14 +597,23 @@ class ServerState:
                         idx,
                     )
                 else:
-                    chosen_idx = (
-                        self.image_files.index(new_choice)
-                        if new_choice in self.image_files
-                        else idx
-                    )
+                    # Mode Seluruh Data Subject: Lompat ke slice yang BELUM dilabeli tanpa menghapus slice yang sudah selesai!
+                    unlabeled_indices = [
+                        i for i, p in enumerate(self.image_files)
+                        if i != idx and not self.is_file_labeled(p)
+                    ]
+                    if unlabeled_indices:
+                        # Prioritaskan slice berikutnya secara berurutan yang belum dilabeli
+                        after_cur = [i for i in unlabeled_indices if i > idx]
+                        chosen_idx = after_cur[0] if after_cur else unlabeled_indices[0]
+                    else:
+                        candidates = [i for i in range(len(self.image_files)) if i != idx] or [idx]
+                        chosen_idx = random.choice(candidates)
+                    chosen_p = self.image_files[chosen_idx]
+                    ptag = self._get_point_tag(chosen_p)
                     return (
                         True,
-                        f"🎲 Titik [{ptag}]: Melompat ke {new_choice.name} (Status direset: Belum Selesai)",
+                        f"⏭ Melompat ke slice belum dilabeli [{ptag}]: {chosen_p.name} (#{chosen_idx + 1}/{len(self.image_files)})",
                         chosen_idx,
                     )
 
@@ -571,8 +653,8 @@ class ServerState:
             if chosen_path is None:
                 return False, f"Slice '{slice_filename}' tidak ditemukan di titik ini.", idx
 
-            if chosen_path != cur_path:
-                # Hapus hasil simpan slice sebelumnya pada titik ini agar diganti dengan slice baru
+            if chosen_path != cur_path and self.one_sample_per_point:
+                # Hanya pada Mode 1 Sampel/Titik kita menghapus slice lama saat mengganti pilihan slice titik
                 self._delete_point_outputs(pt_files)
 
             self.selected_point_sample[target_pt_key] = chosen_path
@@ -640,12 +722,37 @@ class ServerState:
 
         return self.set_directories(str(target_dir), None)
 
-    def load_parent_all_points(self) -> Tuple[bool, str]:
-        """Naik 1 level ke folder dataset induk untuk memuat semua titik sekaligus (1 sampel/titik)."""
+    def load_parent_all_points(
+        self, subject_only: bool = False, subject_id: Optional[str] = None
+    ) -> Tuple[bool, str]:
+        """
+        Naik ke folder dataset induk untuk memuat seluruh data:
+        - Jika `subject_only=True` (atau `subject_id` diisi): memuat seluruh slice dari 1 subjek (4 titik = 40 gambar).
+        - Jika `subject_only=False` dan `subject_id=""`: memuat seluruh slice dari semua subjek (400 gambar).
+        """
         with self.lock:
-            if self.input_dir is None or self.input_dir.parent == self.input_dir:
-                return False, "Folder induk tidak tersedia."
-            parent_dir = self.input_dir.parent
+            if self.input_dir is None:
+                return False, "Folder sumber belum dipilih."
+
+            # Jika saat ini berada di dalam subfolder titik (.bin / direct_files), naik ke parent_dir
+            direct_files = self._list_images_in_dir(self.input_dir)
+            if direct_files and self.input_dir.parent != self.input_dir:
+                target_in_dir = self.input_dir.parent
+                cur_subj = self._extract_subject_id(self.input_dir.name)
+            else:
+                target_in_dir = self.input_dir
+                cur_subj = self.subject_filter or (
+                    self._extract_subject_id(self.image_files[0].parent.name)
+                    if self.image_files
+                    else ""
+                )
+
+            target_subj = (
+                subject_id.strip().lower()
+                if subject_id is not None
+                else (cur_subj if subject_only else "")
+            )
+
             old_tag = self._clean_point_tag(self.input_dir.name)
             new_out = None
             if (
@@ -655,7 +762,10 @@ class ServerState:
                 new_out = str(self.output_dir.parent)
 
         return self.set_directories(
-            str(parent_dir), new_out, one_sample_per_point=True
+            str(target_in_dir),
+            new_out,
+            one_sample_per_point=False,
+            subject_filter=target_subj,
         )
 
     def get_status_dict(self) -> Dict:
@@ -697,23 +807,22 @@ class ServerState:
             if sibling_total > 0 and self.input_dir in self.sibling_points:
                 sibling_Idx = self.sibling_points.index(self.input_dir)
 
-            # Tentukan indeks awal yang direkomendasikan (jika belum ada yg dilabeli di titik tunggal, pilih 1 sampel acak)
+            # Tentukan indeks awal yang direkomendasikan (prioritaskan gambar pertama yang belum dilabeli)
             recommended_index = 0
             if self.image_files:
-                if len(self.point_groups) == 1:
-                    if first_labeled_idx >= 0:
-                        recommended_index = first_labeled_idx
-                    else:
-                        pt_key = next(iter(self.point_groups.keys()))
-                        chosen_p = self.selected_point_sample.get(pt_key)
-                        if chosen_p in self.image_files:
-                            recommended_index = self.image_files.index(chosen_p)
-                else:
-                    # Multi-titik: arahkan ke titik pertama yang belum dilabeli
-                    unlabeled_indices = [
-                        i for i, f in enumerate(files_info) if not f["labeled"]
-                    ]
-                    recommended_index = unlabeled_indices[0] if unlabeled_indices else 0
+                unlabeled_indices = [
+                    i for i, f in enumerate(files_info) if not f["labeled"]
+                ]
+                if unlabeled_indices:
+                    recommended_index = unlabeled_indices[0]
+                elif first_labeled_idx >= 0:
+                    recommended_index = first_labeled_idx
+
+            current_subj = ""
+            if self.subject_filter:
+                current_subj = self.subject_filter
+            elif self.input_dir:
+                current_subj = self._extract_subject_id(self.input_dir.name)
 
             return {
                 "input_dir": str(self.input_dir) if self.input_dir else "",
@@ -721,6 +830,9 @@ class ServerState:
                 "default_browse_dir": str(DEFAULT_BROWSE_DIR),
                 "subfolder_mode": self.subfolder_mode,
                 "one_sample_per_point": self.one_sample_per_point,
+                "subject_filter": self.subject_filter,
+                "current_subject": current_subj,
+                "available_subjects": self.available_subjects,
                 "multi_point_mode": len(self.point_groups) > 1,
                 "total_points": total_points,
                 "labeled_points": labeled_points,
@@ -862,8 +974,11 @@ class ServerState:
                 else:
                     return False, "Folder Output belum diatur.", {}
 
+            self.output_dir = self._sanitize_output_dir(self.output_dir)
             self.output_dir.mkdir(parents=True, exist_ok=True)
             src_path = self.image_files[index]
+            target_out_dir = self._get_point_output_dir(src_path)
+            target_out_dir.mkdir(parents=True, exist_ok=True)
             save_stem = self._get_save_stem(src_path)
 
             # Deteksi apakah titik/gambar ini sebelumnya sudah memiliki label tersimpan (Mode Revisi)
@@ -904,13 +1019,13 @@ class ServerState:
             clean_mask = np.clip(mask_arr, 0, 3).astype(np.uint8)
             overlay_vis = render_reference_overlay(cropped_bgr, clean_mask)
 
-            crop_path = self.output_dir / f"{save_stem}_crop.png"
-            mask_path = self.output_dir / f"{save_stem}_mask.png"
+            crop_path = target_out_dir / f"{save_stem}_crop.png"
+            mask_path = target_out_dir / f"{save_stem}_mask.png"
 
             ok_crop = imwrite_unicode(str(crop_path), cropped_bgr)
             ok_mask = imwrite_unicode(str(mask_path), clean_mask)
 
-            ovl_dir = self.output_dir / "overlays"
+            ovl_dir = target_out_dir / "overlays"
             ovl_dir.mkdir(parents=True, exist_ok=True)
             imwrite_unicode(str(ovl_dir / f"{save_stem}_overlay.png"), overlay_vis)
 
@@ -922,8 +1037,8 @@ class ServerState:
             strip_bgr = cropped_bgr[:, x0:x1].copy()
             strip_msk = clean_mask[:, x0:x1].copy()
 
-            strip_dir = self.output_dir / "strips"
-            strip_msk_dir = self.output_dir / "strips_mask"
+            strip_dir = target_out_dir / "strips"
+            strip_msk_dir = target_out_dir / "strips_mask"
             strip_dir.mkdir(parents=True, exist_ok=True)
             strip_msk_dir.mkdir(parents=True, exist_ok=True)
 
@@ -960,7 +1075,7 @@ class ServerState:
                             f"{f'{sc_t:.2f}' if sc_t is not None else ''},"
                             f"{f'{ed_t:.2f}' if ed_t is not None else ''}"
                         )
-                    csv_path = self.output_dir / f"{save_stem}_thickness.csv"
+                    csv_path = target_out_dir / f"{save_stem}_thickness.csv"
                     csv_path.write_text("\n".join(csv_lines), encoding="utf-8")
                 except Exception:
                     pass
@@ -969,8 +1084,8 @@ class ServerState:
                 imwrite_unicode(str(strip_msk_dir / f"{save_stem}_strip_mask.png"), strip_msk)
 
             if self.subfolder_mode:
-                img_dir = self.output_dir / "images"
-                msk_dir = self.output_dir / "masks"
+                img_dir = target_out_dir / "images"
+                msk_dir = target_out_dir / "masks"
                 img_dir.mkdir(parents=True, exist_ok=True)
                 msk_dir.mkdir(parents=True, exist_ok=True)
                 imwrite_unicode(str(img_dir / f"{save_stem}_crop.png"), cropped_bgr)
@@ -1452,13 +1567,22 @@ INDEX_HTML = r"""<!DOCTYPE html>
         <input type="checkbox" id="chkSubfolder" checked>
         Simpan juga ke /images/ &amp; /masks/
       </label>
-      <label style="display:flex;align-items:center;gap:6px;margin-top:5px;font-size:11px;cursor:pointer;color:#4ade80;font-weight:700;" title="1 Subjek = 4 Titik, per titik hanya diambil 1 sampel acak">
-        <input type="checkbox" id="chkOneSamplePerPoint" checked onchange="onToggleOneSamplePerPoint()">
-        🎯 Mode 1 Sampel per Titik (4 Titik/Subjek)
+      <div id="subjectFilterBox" style="margin-top:6px;">
+        <div style="font-size:10.5px;color:#7cc4fa;font-weight:700;margin-bottom:3px;">👤 Pilih Subject (Seluruh Data):</div>
+        <select id="selSubjectFilter" onchange="onSubjectFilterChange(this.value)" style="padding:4px 6px;font-size:11.5px;"></select>
+      </div>
+      <div class="row" id="parentLoadBtns" style="display:none;margin-top:6px;">
+        <button id="btnLoadCurrentSubject" style="background:#0284c7;border-color:#38bdf8;color:#fff;font-size:11px;padding:6px;" onclick="loadParentAllPoints(true)">
+          👤 Muat 4 Titik Subject Ini (40 Gambar)
+        </button>
+        <button id="btnLoadAllSubjects" style="background:#0f766e;border-color:#14b8a6;color:#fff;font-size:11px;padding:6px;" onclick="loadParentAllPoints(false)">
+          📚 Semua Subject
+        </button>
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;cursor:pointer;color:var(--text-muted);" title="Centang jika hanya ingin mengambil 1 sampel per titik; matikan untuk melabeli seluruh gambar (10 slice/titik)">
+        <input type="checkbox" id="chkOneSamplePerPoint" onchange="onToggleOneSamplePerPoint()">
+        🎯 Batasi 1 Sampel/Titik (Matikan = Labeli Semua Slice)
       </label>
-      <button id="btnLoadParentPoints" style="display:none;width:100%;margin-top:6px;background:#0284c7;border-color:#38bdf8;color:#fff;" onclick="loadParentAllPoints()">
-        📂 Gabung Semua Titik (1 Sampel/Titik)
-      </button>
     </div>
 
     <!-- 2. Pengaturan Crop ROI 512x512 (B-Scan Spatial) -->
@@ -1715,20 +1839,56 @@ async function fetchStatus(autoLoadFirst = true) {
     multiPointMode = !!data.multi_point_mode;
     totalPoints = data.total_points || 1;
     labeledPoints = data.labeled_points || 0;
+    const isOneSample = !!data.one_sample_per_point;
 
-    const btnParent = document.getElementById('btnLoadParentPoints');
+    const btnRand = document.getElementById('btnRandomSlice');
+    if (btnRand) {
+      btnRand.textContent = isOneSample ? '🎲 Ganti Slice Acak (Titik Ini)' : '⏭ Lompat ke Slice Belum Dilabeli';
+    }
+
+    // Populate Subject Filter dropdown
+    const subjBox = document.getElementById('subjectFilterBox');
+    const selSubj = document.getElementById('selSubjectFilter');
+    const availSubjs = data.available_subjects || [];
+    if (availSubjs.length > 0) {
+      subjBox.style.display = 'block';
+      selSubj.innerHTML = '';
+      const totalAllFiles = availSubjs.reduce((acc, s) => acc + s.files, 0);
+      const optAll = document.createElement('option');
+      optAll.value = '__ALL__';
+      optAll.textContent = `📚 Semua Subject (${availSubjs.length} Subject — ${totalAllFiles} Gambar)`;
+      if (multiPointMode && !data.subject_filter) optAll.selected = true;
+      selSubj.appendChild(optAll);
+
+      availSubjs.forEach((s) => {
+        const opt = document.createElement('option');
+        opt.value = s.id;
+        opt.textContent = `👤 Subject: ${s.id.toUpperCase()} (${s.points} titik — ${s.files} gambar)`;
+        if ((multiPointMode && data.subject_filter === s.id) || (!multiPointMode && data.current_subject === s.id)) {
+          opt.selected = true;
+        }
+        selSubj.appendChild(opt);
+      });
+    } else {
+      subjBox.style.display = 'none';
+    }
+
+    const parentBtns = document.getElementById('parentLoadBtns');
+    const btnCurSubj = document.getElementById('btnLoadCurrentSubject');
     const sibRow = document.getElementById('siblingNavRow');
     if (!multiPointMode && data.sibling_total > 1) {
-      btnParent.style.display = 'block';
-      btnParent.textContent = `📂 Gabung Semua Titik (${data.sibling_total} Titik — 1 Sampel/Titik)`;
+      parentBtns.style.display = 'flex';
+      if (data.current_subject) {
+        btnCurSubj.textContent = `👤 Semua Slice Subject [${data.current_subject.toUpperCase()}]`;
+      }
       sibRow.style.display = 'flex';
     } else {
-      btnParent.style.display = 'none';
+      parentBtns.style.display = 'none';
       sibRow.style.display = 'none';
     }
 
     files = data.files || [];
-    renderFileList(data.labeled_count, data.total_files, labeledPoints, totalPoints, data.current_point_name);
+    renderFileList(data.labeled_count, data.total_files, labeledPoints, totalPoints, isOneSample);
     if (autoLoadFirst && files.length > 0 && currentIndex === -1) {
       const startIdx = (data.recommended_index !== undefined && data.recommended_index >= 0) ? data.recommended_index : 0;
       await loadImage(startIdx, true);
@@ -1738,10 +1898,16 @@ async function fetchStatus(autoLoadFirst = true) {
   }
 }
 
-function renderFileList(labeledCount, totalFiles, lPoints = labeledPoints, tPoints = totalPoints, ptName = '') {
+function renderFileList(labeledCount, totalFiles, lPoints = labeledPoints, tPoints = totalPoints, isOneSample = false) {
   labeledPoints = lPoints;
   totalPoints = tPoints;
-  if (multiPointMode) {
+  const oneSampleChecked = document.getElementById('chkOneSamplePerPoint') ? document.getElementById('chkOneSamplePerPoint').checked : isOneSample;
+  if (!oneSampleChecked) {
+    const pct = totalFiles > 0 ? Math.round((labeledCount / totalFiles) * 100) : 0;
+    document.getElementById('lblProgress').textContent = `Progres Seluruh Data: ${labeledCount} / ${totalFiles} gambar selesai (${tPoints} titik)`;
+    document.getElementById('progressBar').style.width = pct + '%';
+    document.getElementById('progressPct').textContent = `${labeledCount}/${totalFiles} gambar (${pct}%)`;
+  } else if (multiPointMode) {
     document.getElementById('lblProgress').textContent = `Selesai: ${lPoints} / ${tPoints} titik (1 sampel/titik)`;
     const pct = tPoints > 0 ? Math.round((lPoints / tPoints) * 100) : 0;
     document.getElementById('progressBar').style.width = pct + '%';
@@ -2396,7 +2562,7 @@ async function switchSiblingPoint(delta) {
   }
 }
 
-async function loadParentAllPoints() {
+async function loadParentAllPoints(subjectOnly = false, explicitSubjectId = null) {
   if (document.getElementById('chkAutoSave').checked && isDirty && hasAnyMaskStroke()) {
     await saveCurrent(false);
   }
@@ -2404,7 +2570,10 @@ async function loadParentAllPoints() {
     const res = await fetch('/api/load_parent_points', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({})
+      body: JSON.stringify({
+        subject_only: subjectOnly,
+        subject_id: explicitSubjectId
+      })
     });
     const out = await res.json();
     if (out.ok) {
@@ -2415,7 +2584,15 @@ async function loadParentAllPoints() {
       alert(out.message);
     }
   } catch (e) {
-    alert('Error memuat semua titik: ' + e.message);
+    alert('Error memuat data subject: ' + e.message);
+  }
+}
+
+async function onSubjectFilterChange(val) {
+  if (val === '__ALL__') {
+    await loadParentAllPoints(false, '');
+  } else {
+    await loadParentAllPoints(true, val);
   }
 }
 
@@ -2683,7 +2860,12 @@ class TabletRequestHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/load_parent_points":
-            ok, msg = STATE.load_parent_all_points()
+            subj_only = bool(payload.get("subject_only", False))
+            subj_id = payload.get("subject_id")
+            ok, msg = STATE.load_parent_all_points(
+                subject_only=subj_only,
+                subject_id=str(subj_id) if subj_id is not None else None,
+            )
             self._send_json({"ok": ok, "message": msg})
             return
 

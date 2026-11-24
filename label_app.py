@@ -786,9 +786,10 @@ class OCTLabelingApp(QMainWindow):
         self.resize(1280, 760)
         self.setMinimumSize(980, 600)
 
-        # State direktori dan file (1 Subjek = 4 Titik, 1 Titik = 1 Sampel)
+        # State direktori dan file (Mendukung Mode Seluruh Data Subject & Mode 1 Sampel/Titik)
         self.input_dir: Optional[Path] = None
         self.output_dir: Optional[Path] = None
+        self.subject_filter: str = ""
         self.image_files: List[Path] = []
         self.point_groups: dict[str, List[Path]] = {}
         self.selected_point_sample: dict[str, Path] = {}
@@ -868,29 +869,36 @@ class OCTLabelingApp(QMainWindow):
         )
         self.chk_subfolder_mode.setChecked(True)
 
+        lbl_subj_filter = QLabel("👤 Pilih Subject (Seluruh Data):")
+        lbl_subj_filter.setStyleSheet("color: #7cc4fa; font-weight: bold; font-size: 11px;")
+        self.combo_subject_filter = QComboBox()
+        self.combo_subject_filter.currentIndexChanged.connect(self._on_subject_filter_changed)
+
         self.chk_one_sample_per_point = QCheckBox(
-            "🎯 Mode 1 Sampel per Titik (4 Titik/Subjek)"
+            "🎯 Batasi 1 Sampel/Titik (Matikan = Labeli Semua Slice)"
         )
-        self.chk_one_sample_per_point.setChecked(True)
-        self.chk_one_sample_per_point.setStyleSheet("color: #4ade80; font-weight: bold;")
+        self.chk_one_sample_per_point.setChecked(False)
+        self.chk_one_sample_per_point.setStyleSheet("color: #9aa5b1; font-size: 11px;")
         self.chk_one_sample_per_point.toggled.connect(self._scan_input_images)
 
         self.btn_load_parent_points = QPushButton(
-            "📂 Gabung Semua Titik (1 Sampel/Titik)"
+            "👤 Muat Seluruh Data Subject Ini (4 Titik = 40 Gambar)"
         )
         self.btn_load_parent_points.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_load_parent_points.setStyleSheet(
             "QPushButton { background-color: #0284c7; border-color: #38bdf8; color: white; font-weight: bold; }"
             "QPushButton:hover { background-color: #0369a1; }"
         )
-        self.btn_load_parent_points.clicked.connect(self.load_parent_all_points)
+        self.btn_load_parent_points.clicked.connect(lambda: self.load_parent_all_points(subject_only=True))
         self.btn_load_parent_points.setVisible(False)
 
         dir_layout.addLayout(btn_dir_row)
         dir_layout.addWidget(path_box)
         dir_layout.addWidget(self.chk_subfolder_mode)
-        dir_layout.addWidget(self.chk_one_sample_per_point)
+        dir_layout.addWidget(lbl_subj_filter)
+        dir_layout.addWidget(self.combo_subject_filter)
         dir_layout.addWidget(self.btn_load_parent_points)
+        dir_layout.addWidget(self.chk_one_sample_per_point)
         left_layout.addWidget(dir_group)
 
         # 2. Grup Pengaturan Auto-Crop ROI (512x512) & Preview Gambar Mentah
@@ -1346,18 +1354,50 @@ class OCTLabelingApp(QMainWindow):
     # =========================================================================
     @staticmethod
     def _clean_point_tag(folder_name: str) -> str:
-        if folder_name.lower().endswith(".bin"):
-            return folder_name[:-4]
-        return folder_name
+        cleaned = folder_name.strip()
+        if cleaned.lower().endswith(".bin"):
+            cleaned = cleaned[:-4]
+        return cleaned.strip(" .")
+
+    @classmethod
+    def _extract_subject_id(cls, folder_name: str) -> str:
+        ptag = cls._clean_point_tag(folder_name)
+        cleaned = re.sub(
+            r"[_\-\s]*(foot[rl]?|hand[rl]?|arm[rl]?|leg[rl]?|palm[rl]?|wrist[rl]?|calf[rl]?|thigh[rl]?)[_\-\s]*",
+            "",
+            ptag,
+            flags=re.IGNORECASE,
+        ).strip(" _-.")
+        return cleaned.lower() if cleaned else ptag.lower()
+
+    @classmethod
+    def _sanitize_output_dir(cls, p: Path) -> Path:
+        if p.parent != p:
+            clean_name = cls._clean_point_tag(p.name) if p.name.endswith(" ") or p.name.endswith(".") else p.name.strip(" .")
+            return p.parent / clean_name
+        return p
 
     def _get_point_tag(self, src_path: Path) -> str:
         return self._clean_point_tag(src_path.parent.name)
 
-    def _get_save_stem(self, src_path: Path) -> str:
-        stem = src_path.stem
+    def _get_point_output_dir(self, src_path: Path) -> Path:
+        assert self.output_dir is not None
         ptag = self._get_point_tag(src_path)
-        if self.output_dir is not None:
-            out_clean = self._clean_point_tag(self.output_dir.name)
+        out_clean = self._clean_point_tag(self.output_dir.name)
+        if out_clean.lower() == ptag.lower():
+            return self._sanitize_output_dir(self.output_dir)
+        if len(self.point_groups) > 1 or (self.output_dir / ptag).exists():
+            return self._sanitize_output_dir(self.output_dir / ptag)
+        if self.output_dir.parent != self.output_dir and (self.output_dir.parent / ptag).exists():
+            return self._sanitize_output_dir(self.output_dir.parent / ptag)
+        return self._sanitize_output_dir(self.output_dir)
+
+    def _get_save_stem(self, src_path: Path) -> str:
+        stem = src_path.stem.strip()
+        ptag = self._get_point_tag(src_path)
+        target_out = self._get_point_output_dir(src_path) if self.output_dir is not None else None
+        if target_out is not None:
+            out_clean = self._clean_point_tag(target_out.name)
             if out_clean.lower() == ptag.lower():
                 return stem
         if stem.lower().startswith(ptag.lower()):
@@ -1489,10 +1529,13 @@ class OCTLabelingApp(QMainWindow):
         elif old_in is not None:
             old_tag = self._clean_point_tag(old_in.name)
             new_tag = self._clean_point_tag(new_in.name)
-            if self.output_dir.name.lower() == old_tag.lower():
+            if self._clean_point_tag(self.output_dir.name).lower() == old_tag.lower():
                 self.output_dir = self.output_dir.parent / new_tag
-            elif self.output_dir.name.lower() == f"{old_in.name.lower()}_output":
-                self.output_dir = self.output_dir.parent / f"{new_in.name}_output"
+            elif self.output_dir.name.strip().lower() == f"{old_in.name.strip().lower()}_output":
+                self.output_dir = self.output_dir.parent / f"{new_tag}_output"
+
+        if self.output_dir is not None:
+            self.output_dir = self._sanitize_output_dir(self.output_dir)
 
         self.lbl_output_dir.setText(f"Output: {self.output_dir}")
         self._scan_input_images()
@@ -1504,7 +1547,7 @@ class OCTLabelingApp(QMainWindow):
         if not folder:
             return
 
-        self.output_dir = Path(folder)
+        self.output_dir = self._sanitize_output_dir(Path(folder))
         self.lbl_output_dir.setText(f"Output: {self.output_dir}")
         self._refresh_file_list_status()
         if 0 <= self.current_index < len(self.image_files):
@@ -1564,8 +1607,59 @@ class OCTLabelingApp(QMainWindow):
             except Exception:
                 pass
 
+        # Bangun daftar subjek untuk dropdown filter
+        subj_counts: dict[str, dict[str, int]] = {}
+        source_for_subjects = (
+            [(s.name, len(self._list_images_in_dir(s))) for s in self.sibling_points]
+            if len(point_groups) == 1 and len(self.sibling_points) > 1
+            else [(k, len(v)) for k, v in point_groups.items()]
+        )
+        for pt_name, n_imgs in source_for_subjects:
+            sid = self._extract_subject_id(pt_name)
+            info = subj_counts.setdefault(sid, {"points": 0, "files": 0})
+            info["points"] += 1
+            info["files"] += n_imgs
+
+        self.combo_subject_filter.blockSignals(True)
+        self.combo_subject_filter.clear()
+        total_all_files = sum(v["files"] for v in subj_counts.values())
+        self.combo_subject_filter.addItem(
+            f"📚 Semua Subject ({len(subj_counts)} Subject — {total_all_files} Gambar)", "__ALL__"
+        )
+        active_combo_idx = 0
+        cur_subj_guess = (
+            self.subject_filter
+            if len(point_groups) > 1
+            else (self._extract_subject_id(self.input_dir.name) if self.input_dir else "")
+        )
+        for s_idx, (sid, info) in enumerate(sorted(subj_counts.items()), start=1):
+            self.combo_subject_filter.addItem(
+                f"👤 Subject: {sid.upper()} ({info['points']} titik — {info['files']} gambar)",
+                sid,
+            )
+            if cur_subj_guess == sid and (len(point_groups) == 1 or self.subject_filter == sid):
+                active_combo_idx = s_idx
+        self.combo_subject_filter.setCurrentIndex(active_combo_idx)
+        self.combo_subject_filter.blockSignals(False)
+
+        if len(point_groups) > 1 and self.subject_filter:
+            filtered_pg = {
+                k: v
+                for k, v in point_groups.items()
+                if self._extract_subject_id(k) == self.subject_filter
+            }
+            if filtered_pg:
+                point_groups = filtered_pg
+            else:
+                self.subject_filter = ""
+
         self.point_groups = point_groups
         one_sample = self.chk_one_sample_per_point.isChecked()
+        self.btn_random.setText(
+            "🎲 Ganti Slice Acak (Titik Ini) [R]"
+            if one_sample
+            else "⏭ Lompat ke Slice Belum Dilabeli [R]"
+        )
 
         if len(point_groups) >= 1 and one_sample:
             sampled_list: List[Path] = []
@@ -1573,8 +1667,6 @@ class OCTLabelingApp(QMainWindow):
                 labeled_in_pt = [p for p in pt_files if self._is_file_labeled(p)]
                 if labeled_in_pt:
                     chosen = labeled_in_pt[0]
-                    if len(labeled_in_pt) > 1:
-                        self._delete_point_outputs(pt_files, except_src=chosen)
                     self.selected_point_sample[pt_key] = chosen
                 else:
                     prev_chosen = self.selected_point_sample.get(pt_key)
@@ -1592,15 +1684,16 @@ class OCTLabelingApp(QMainWindow):
                 if pt_files and pt_key not in self.selected_point_sample:
                     labeled_in_pt = [p for p in pt_files if self._is_file_labeled(p)]
                     self.selected_point_sample[pt_key] = (
-                        labeled_in_pt[0] if labeled_in_pt else random.choice(pt_files)
+                        labeled_in_pt[0] if labeled_in_pt else pt_files[0]
                     )
             self.image_files = all_files
 
         has_siblings = len(point_groups) == 1 and len(self.sibling_points) > 1
         self.btn_load_parent_points.setVisible(has_siblings)
-        if has_siblings:
+        if has_siblings and self.input_dir is not None:
+            cur_s = self._extract_subject_id(self.input_dir.name).upper()
             self.btn_load_parent_points.setText(
-                f"📂 Gabung Semua Titik ({len(self.sibling_points)} Titik — 1 Sampel/Titik)"
+                f"👤 Muat Seluruh Slice Subject [{cur_s}] (4 Titik = 40 Gambar)"
             )
         self.sibling_nav_widget.setVisible(has_siblings)
 
@@ -1614,25 +1707,12 @@ class OCTLabelingApp(QMainWindow):
         self._refresh_file_list_status()
 
         if self.image_files:
-            start_idx = 0
-            if len(point_groups) == 1:
-                labeled_indices = [
-                    i for i, p in enumerate(self.image_files) if self._is_file_labeled(p)
-                ]
-                if labeled_indices:
-                    start_idx = labeled_indices[0]
-                else:
-                    pt_key = next(iter(point_groups.keys()))
-                    chosen_p = self.selected_point_sample.get(pt_key)
-                    if chosen_p in self.image_files:
-                        start_idx = self.image_files.index(chosen_p)
-            else:
-                unlabeled_indices = [
-                    i
-                    for i, p in enumerate(self.image_files)
-                    if not self._is_file_labeled(p)
-                ]
-                start_idx = unlabeled_indices[0] if unlabeled_indices else 0
+            unlabeled_indices = [
+                i
+                for i, p in enumerate(self.image_files)
+                if not self._is_file_labeled(p)
+            ]
+            start_idx = unlabeled_indices[0] if unlabeled_indices else 0
 
             self.file_list_widget.setCurrentRow(start_idx)
             self.load_image_at_index(start_idx)
@@ -1668,9 +1748,11 @@ class OCTLabelingApp(QMainWindow):
 
     def _get_output_paths(self, src_path: Path) -> Tuple[Path, Path]:
         assert self.output_dir is not None
+        target_out_dir = self._get_point_output_dir(src_path)
+        target_out_dir.mkdir(parents=True, exist_ok=True)
         save_stem = self._get_save_stem(src_path)
-        crop_path = self.output_dir / f"{save_stem}_crop.png"
-        mask_path = self.output_dir / f"{save_stem}_mask.png"
+        crop_path = target_out_dir / f"{save_stem}_crop.png"
+        mask_path = target_out_dir / f"{save_stem}_mask.png"
         return crop_path, mask_path
 
     def _is_file_labeled(self, src_path: Path) -> bool:
@@ -1693,17 +1775,21 @@ class OCTLabelingApp(QMainWindow):
                 item.setText(f"[ ] {disp_name}")
                 item.setForeground(QColor("#d8dde6"))
 
-        if multi_pt:
+        if not one_sample:
+            total_f = len(self.image_files)
+            total_pts = len(self.point_groups)
+            self.lbl_progress.setText(
+                f"Progres Seluruh Data: {labeled_count} / {total_f} gambar selesai ({total_pts} titik)"
+            )
+            self.progress_bar.setRange(0, max(1, total_f))
+            self.progress_bar.setValue(labeled_count)
+        elif multi_pt:
             total_pts = len(self.point_groups)
             labeled_pts = 0
             for pt_key, pt_files in self.point_groups.items():
-                if one_sample:
-                    chosen_p = self.selected_point_sample.get(pt_key)
-                    if chosen_p is not None and self._is_file_labeled(chosen_p):
-                        labeled_pts += 1
-                else:
-                    if any(self._is_file_labeled(p) for p in pt_files):
-                        labeled_pts += 1
+                chosen_p = self.selected_point_sample.get(pt_key)
+                if chosen_p is not None and self._is_file_labeled(chosen_p):
+                    labeled_pts += 1
             self.lbl_progress.setText(
                 f"Selesai: {labeled_pts} / {total_pts} titik (1 sampel/titik)"
             )
@@ -2092,8 +2178,11 @@ class OCTLabelingApp(QMainWindow):
             if self.output_dir is None:
                 return False
 
+        self.output_dir = self._sanitize_output_dir(self.output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         src_path = self.image_files[self.current_index]
+        target_out_dir = self._get_point_output_dir(src_path)
+        target_out_dir.mkdir(parents=True, exist_ok=True)
         save_stem = self._get_save_stem(src_path)
         crop_path, mask_path = self._get_output_paths(src_path)
 
@@ -2118,7 +2207,7 @@ class OCTLabelingApp(QMainWindow):
         ok_crop = imwrite_unicode(str(crop_path), self.canvas.roi_bgr)
         ok_mask = imwrite_unicode(str(mask_path), clean_mask)
 
-        ovl_dir = self.output_dir / "overlays"
+        ovl_dir = target_out_dir / "overlays"
         ovl_dir.mkdir(parents=True, exist_ok=True)
         imwrite_unicode(str(ovl_dir / f"{save_stem}_overlay.png"), overlay_vis)
 
@@ -2126,8 +2215,8 @@ class OCTLabelingApp(QMainWindow):
         sw = max(1, min(64, int(self.spin_strip_w.value())))
         x0 = max(0, min(CROP_SIZE - sw, 256 - sw // 2))
         x1 = x0 + sw
-        strip_dir = self.output_dir / "strips"
-        strip_msk_dir = self.output_dir / "strips_mask"
+        strip_dir = target_out_dir / "strips"
+        strip_msk_dir = target_out_dir / "strips_mask"
         strip_dir.mkdir(parents=True, exist_ok=True)
         strip_msk_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2165,7 +2254,7 @@ class OCTLabelingApp(QMainWindow):
                     f"{f'{sc_t:.2f}' if sc_t is not None else ''},"
                     f"{f'{ed_t:.2f}' if ed_t is not None else ''}"
                 )
-            (self.output_dir / f"{save_stem}_thickness.csv").write_text(
+            (target_out_dir / f"{save_stem}_thickness.csv").write_text(
                 "\n".join(csv_lines), encoding="utf-8"
             )
         else:
@@ -2179,8 +2268,8 @@ class OCTLabelingApp(QMainWindow):
             )
 
         if self.chk_subfolder_mode.isChecked():
-            img_dir = self.output_dir / "images"
-            msk_dir = self.output_dir / "masks"
+            img_dir = target_out_dir / "images"
+            msk_dir = target_out_dir / "masks"
             img_dir.mkdir(parents=True, exist_ok=True)
             msk_dir.mkdir(parents=True, exist_ok=True)
             imwrite_unicode(str(img_dir / f"{save_stem}_crop.png"), self.canvas.roi_bgr)
@@ -2258,21 +2347,20 @@ class OCTLabelingApp(QMainWindow):
 
         if target_pt_key is not None:
             pt_files = self.point_groups[target_pt_key]
-            # Hapus hasil simpan lama pada titik ini agar status kembali Belum Selesai (0/1)
-            self._delete_point_outputs(pt_files)
-
-            rej = self.rejected_point_samples.setdefault(target_pt_key, set())
-            rej.add(curr_path)
-            unseen_candidates = [p for p in pt_files if p not in rej]
-            if not unseen_candidates:
-                rej.clear()
-                rej.add(curr_path)
-                unseen_candidates = [p for p in pt_files if p != curr_path] or pt_files
-
-            new_choice = random.choice(unseen_candidates)
-            self.selected_point_sample[target_pt_key] = new_choice
 
             if self.chk_one_sample_per_point.isChecked():
+                # Mode 1 Sampel/Titik: Hapus hasil simpan lama pada titik ini agar status kembali Belum Selesai (0/1)
+                self._delete_point_outputs(pt_files)
+                rej = self.rejected_point_samples.setdefault(target_pt_key, set())
+                rej.add(curr_path)
+                unseen_candidates = [p for p in pt_files if p not in rej]
+                if not unseen_candidates:
+                    rej.clear()
+                    rej.add(curr_path)
+                    unseen_candidates = [p for p in pt_files if p != curr_path] or pt_files
+
+                new_choice = random.choice(unseen_candidates)
+                self.selected_point_sample[target_pt_key] = new_choice
                 self.image_files[self.current_index] = new_choice
                 self._refresh_file_list_status()
                 self.load_image_at_index(self.current_index)
@@ -2281,17 +2369,26 @@ class OCTLabelingApp(QMainWindow):
                 )
                 return
             else:
-                self._refresh_file_list_status()
-                if new_choice in self.image_files:
-                    chosen_idx = self.image_files.index(new_choice)
-                    self.file_list_widget.setCurrentRow(chosen_idx)
-                    self.status_bar.showMessage(
-                        f"🎲 Titik [{pt_tag}]: Melompat ke {new_choice.name} (Status direset: Belum Selesai)"
-                    )
-                    return
+                # Mode Seluruh Data Subject: Lompat ke slice berikutnya yang belum dilabeli tanpa menghapus slice lain
+                unlabeled_indices = [
+                    i for i, p in enumerate(self.image_files)
+                    if i != self.current_index and not self._is_file_labeled(p)
+                ]
+                if unlabeled_indices:
+                    after_cur = [i for i in unlabeled_indices if i > self.current_index]
+                    chosen_idx = after_cur[0] if after_cur else unlabeled_indices[0]
+                else:
+                    candidates = [i for i in range(len(self.image_files)) if i != self.current_index] or [self.current_index]
+                    chosen_idx = random.choice(candidates)
+                self.file_list_widget.setCurrentRow(chosen_idx)
+                chosen_p = self.image_files[chosen_idx]
+                self.status_bar.showMessage(
+                    f"⏭ Melompat ke slice belum dilabeli [{self._get_point_tag(chosen_p)}]: {chosen_p.name} (#{chosen_idx + 1}/{len(self.image_files)})"
+                )
+                return
 
     def _on_point_slice_selected(self, combo_idx: int) -> None:
-        """Memilih slice tertentu di dalam titik aktif untuk melakukan revisi/penggantian sampel."""
+        """Memilih slice tertentu di dalam titik aktif."""
         if combo_idx < 0 or not self.image_files or self.current_index < 0:
             return
         slice_name = self.combo_point_slice.itemData(combo_idx)
@@ -2315,12 +2412,10 @@ class OCTLabelingApp(QMainWindow):
         if chosen_path is None:
             return
 
-        # Hapus hasil simpan slice sebelumnya pada titik ini agar diganti dengan slice baru
-        self._delete_point_outputs(pt_files)
-        self.selected_point_sample[target_pt_key] = chosen_path
-        pt_tag = self._get_point_tag(chosen_path)
-
         if self.chk_one_sample_per_point.isChecked():
+            self._delete_point_outputs(pt_files)
+            self.selected_point_sample[target_pt_key] = chosen_path
+            pt_tag = self._get_point_tag(chosen_path)
             self.image_files[self.current_index] = chosen_path
             self._refresh_file_list_status()
             self.load_image_at_index(self.current_index)
@@ -2328,7 +2423,6 @@ class OCTLabelingApp(QMainWindow):
                 f"🎞️ Titik [{pt_tag}]: Beralih ke slice {chosen_path.name} (Siap dilabeli / direvisi)"
             )
         else:
-            self._refresh_file_list_status()
             if chosen_path in self.image_files:
                 self.file_list_widget.setCurrentRow(self.image_files.index(chosen_path))
 
@@ -2384,25 +2478,51 @@ class OCTLabelingApp(QMainWindow):
             f"📍 Pindah Titik ({next_idx + 1}/{len(self.sibling_points)}): {target_dir.name}"
         )
 
-    def load_parent_all_points(self) -> None:
-        """Naik ke folder induk dan muat seluruh titik sekaligus (1 sampel per titik)."""
+    def _on_subject_filter_changed(self, combo_idx: int) -> None:
+        if combo_idx < 0 or self.input_dir is None:
+            return
+        val = self.combo_subject_filter.itemData(combo_idx)
+        if val == "__ALL__":
+            self.load_parent_all_points(subject_only=False, subject_id="")
+        elif val:
+            self.load_parent_all_points(subject_only=True, subject_id=str(val))
+
+    def load_parent_all_points(
+        self, subject_only: bool = False, subject_id: Optional[str] = None
+    ) -> None:
+        """Naik ke folder induk dan muat seluruh slice dari 1 subject (40 gambar) atau seluruh dataset (400 gambar)."""
         if self.input_dir is None:
             return
         if self.chk_autosave.isChecked() and self.is_dirty and self._has_any_mask_stroke():
             self.save_current()
-        parent_dir = self.input_dir.parent
-        if not parent_dir.exists() or parent_dir == self.input_dir:
-            return
+
+        direct_files = self._list_images_in_dir(self.input_dir)
+        if direct_files and self.input_dir.parent != self.input_dir:
+            target_in_dir = self.input_dir.parent
+            cur_subj = self._extract_subject_id(self.input_dir.name)
+        else:
+            target_in_dir = self.input_dir
+            cur_subj = self.subject_filter
+
+        self.subject_filter = (
+            subject_id.strip().lower()
+            if subject_id is not None
+            else (cur_subj if subject_only else "")
+        )
+
         self.chk_one_sample_per_point.blockSignals(True)
-        self.chk_one_sample_per_point.setChecked(True)
+        self.chk_one_sample_per_point.setChecked(False)
         self.chk_one_sample_per_point.blockSignals(False)
+
         if self.output_dir is not None and self._clean_point_tag(self.output_dir.name) == self._clean_point_tag(self.input_dir.name):
             self.output_dir = self.output_dir.parent
             self.lbl_output_dir.setText(f"Output: {self.output_dir}")
             self.lbl_output_dir.setStyleSheet("color: #a6e3a1; font-size: 11px;")
-        self._set_input_directory(parent_dir)
+
+        self._set_input_directory(target_in_dir)
+        subj_label = f"Subject [{self.subject_filter.upper()}]" if self.subject_filter else "Seluruh Subject"
         self.status_bar.showMessage(
-            f"📂 Mode 1 Sampel/Titik Aktif: Memuat {len(self.point_groups)} titik dari {parent_dir.name}"
+            f"📚 Mode Seluruh Data ({subj_label}): Memuat {len(self.image_files)} gambar dari {len(self.point_groups)} titik"
         )
 
 

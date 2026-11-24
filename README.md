@@ -1,6 +1,6 @@
 # OCT Skin Layer Preprocessing & Boundary Annotation Suite
 
-[![Version](https://img.shields.io/badge/version-v2.1.0-blue.svg)](https://github.com/rakasuryakusuma/preprocessing_labeling_apps/releases)
+[![Version](https://img.shields.io/badge/version-v2.2.0-blue.svg)](https://github.com/rakasuryakusuma/preprocessing_labeling_apps/releases)
 [![Python](https://img.shields.io/badge/python-3.9%2B-3776AB.svg)](https://www.python.org/)
 [![GUI](https://img.shields.io/badge/GUI-PyQt6%20%7C%20HTML5%20Tablet%20Canvas-41CD52.svg)](#6-usage-guide)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause%20%2B%20Academic%20Citation-orange.svg)](LICENSE)
@@ -153,7 +153,12 @@ Before training your U-Net model, validate that all exported masks have matching
 
 ## 8. Version History (Changelog)
 
-- **`v2.1.0` (Current)**
+- **`v2.2.0` (Current)**
+  - Added **Full Subject Dataset Mode (`📚 Mode Seluruh Data Subject`)**: enables loading and annotating all slices across an entire subject (`4 points × 10 slices = 40 images`) or the full dataset (`400 images`) while preserving previously labeled samples (`[✓]`).
+  - Added **Subject Filter Dropdown (`👤 Pilih Subject`)**: quickly filter the workspace queue by individual subject (e.g., `ALE`, `BASTIAN`, `BAYU`, `MOANA`) or view all subjects simultaneously.
+  - Added **Automatic Per-Point Output Routing**: automatically saves each point's crops, masks, overlays, and center strips into `preproc-output/<point_tag>/` regardless of whether a single point folder, single subject, or full dataset directory is loaded.
+  - Added **`⏭ Lompat ke Slice Belum Dilabeli`** button to jump directly to the next unlabeled slice without affecting existing saved files.
+- **`v2.1.0`**
   - Added **Label Revision & Auto-Remove/Replace Engine** (`✏️ Mode Revisi`, atomic deletion of previous point outputs on revision save, one-click saved file deletion, and per-point slice selector dropdown).
   - Fixed random slice reroll (`🎲 Ganti Slice Acak`) so rejected slices are never auto-saved and immediately reset the point status to *Unfinished* (`0 / 1`).
   - Enforced **`1 Subject = 4 Points, 1 Sample per Point`** sampling across both single-folder and multi-folder modes.
