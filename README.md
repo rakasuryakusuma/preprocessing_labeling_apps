@@ -31,17 +31,17 @@ An interactive preprocessing and multi-class semantic boundary annotation framew
 
 In Optical Coherence Tomography (OCT) skin thickness analysis, the deployment target is often a **Temporal M-Scan** (500+ frames captured at a single static location over time). However, training a deep Convolutional Neural Network (e.g., U-Net with a ResNet-34 encoder) directly on static temporal slices suffers from severe **lack of morphological variance** and **data leakage**.
 
-This suite implements the **"Train on Spatial, Infer on Temporal"** paradigm:
-- **Spatial B-Scan Training (`512×512` ROI)**: The model is trained on full 2D spatial B-Scan slices sampled across multiple anatomical points per subject. These images exhibit rich morphological variance (dermatoglyphic ridges and valleys), forcing the network to learn the vertical optical reflectance transitions ($\text{Air} \rightarrow \text{Stratum Corneum} \rightarrow \text{Epidermis/Dermis}$).
-- **Stratified Point Sampling (`1 Subject = 4 Points, 1 Sample/Point`)**: Rather than labeling hundreds of redundant adjacent frames, the tool enforces a strict **1 representative sample per anatomical point** rule, maximizing morphological diversity across subjects with minimal manual annotation overhead.
+This suite implements the **"Train on Spatial, Infer on Temporal"** paradigm with two flexible sampling modes:
+- **Full Subject Dataset Mode (`v2.2.0` Default — All Slices per Subject)**: Load and annotate all spatial B-Scan slices of a subject (`4 anatomical points × 10 slices = 40 images per subject`, or `400 images` across 10 subjects) with per-subject filtering (`👤 Pilih Subject`) and automatic per-point output folder routing (`preproc-output/<point_tag>/`).
+- **Stratified Point Sampling Mode (`1 Subject = 4 Points, 1 Sample/Point`)**: Optional 1-sample-per-point mode for rapid prototyping, sampling 1 representative B-Scan slice per anatomical point.
 
 ---
 
 ## 2. Key Features (v2.2.0)
 
-* **Full Subject Dataset Mode & Subject Filter (`👤 Pilih Subject`)**:
+* **Full Subject Dataset Mode & Subject Filter (`👤 Pilih Subject` — New in `v2.2.0`)**:
   * **Full Slice Annotation by Subject or Dataset**: Load and annotate all slices of an individual subject (`4 points × 10 slices = 40 images`) or the entire dataset (`10 subjects × 40 slices = 400 images`) while preserving all previously labeled samples (`[✓]`).
-  * **Subject Filter Dropdown (`👤 Pilih Subject`)**: Filter the queue by specific subject (`ALE`, `BASTIAN`, `BAYU`, `MOANA`, etc.) or view all subjects simultaneously.
+  * **Subject Filter Dropdown (`👤 Pilih Subject`)**: Filter the workspace queue by specific subject (`ALE`, `BASTIAN`, `BAYU`, `MOANA`, etc.) or view all subjects simultaneously.
   * **Automatic Per-Point Output Routing**: Automatically routes exported crops, masks, overlays, and center strips into `preproc-output/<point_tag>/` regardless of whether a single point folder, single subject, or full dataset directory is loaded.
   * **Quick Jump to Next Unlabeled Slice (`⏭ Lompat ke Slice Belum Dilabeli [R]`)**: Jumps directly to the next unlabeled slice without modifying existing saved annotations.
 * **Optional Stratified `1 Sample per Point` Mode (`🎯 Batasi 1 Sampel/Titik`)**:
@@ -50,9 +50,6 @@ This suite implements the **"Train on Spatial, Infer on Temporal"** paradigm:
   * **Atomic Overwrite on Revision**: When editing an already-labeled sample (`[✓]`), clicking **`💾 SIMPAN REVISI (GANTI FILE LAMA)`** automatically purges the previous exported files (`*_crop.png`, `*_mask.png`, `*_overlay.png`, `*_strip.png`, `*_strip_mask.png`) before writing the updated image and mask—preventing duplicate or orphaned files in your training set.
   * **One-Click Reset (`🗑️ Hapus Gambar Tersimpan`)**: Deletes the saved files of the current sample from disk, clears the canvas mask, and resets its status to `[ ]` for a clean re-annotation.
   * **Per-Point Slice Selector (`🎞️ Pilih / Revisi Slice Titik Ini`)**: Switch to any specific slice (`1..N`) within the active point folder.
-* **Multi-Model Training, Evaluation & 500-Frame M-Scan Stitching Pipeline ([`model_train_test/`](model_train_test/README.md))**:
-  * Includes Google Colab notebooks for training and benchmarking **U-Net (ResNet34)**, **U-Net++ (ResNet34)**, **SegFormer (MiT-B1)**, and **YOLO26-seg** on both full **`512×512` Crops** and **`512×8` Center Strips**.
-  * Includes local VS Code inference scripts ([`predict_500frames_stitch.py`](model_train_test/predict_500frames_stitch.py) and [`evaluate_from_pth.py`](model_train_test/evaluate_from_pth.py)) to stitch `1px` center columns across `500` sequential M-Mode frames (`_0.bin`..`_4.bin`) and generate publication-ready evaluation graphs directly from `.pth`/`.pt` weights on CPU.
 * **Dual Deployment Architecture**:
   * **Remote Tablet Stylus Server (`tablet_server.py`)**: Keep large OCT datasets on your Laptop/Workstation while annotating from a Tablet browser (iPad / Android Tablet) over local Wi-Fi with hardware **Stylus Palm Rejection** (`Stylus = Draw`, `Finger Touch = Pan Canvas`).
   * **Desktop Native GUI (`label_app.py`)**: Full-featured PyQt6 desktop interface with real-time Bresenham line interpolation and keyboard-driven navigation.
@@ -120,7 +117,7 @@ Ideal for annotating with a tablet stylus (e.g., Apple Pencil, Samsung S-Pen) wi
 3. Note the local IP URL printed in the terminal (e.g., `http://192.168.1.10:8080`) and open it in **Chrome / Safari** on your Tablet.
 4. On the Tablet interface:
    - Tap **"Pilih Folder Sumber"** to browse your Laptop's filesystem remotely and select your dataset folder.
-   - Ensure **"🎯 Mode 1 Sampel per Titik"** and **"Mode Khusus Stylus Pen (Jari = Geser)"** are checked.
+   - Use the **"👤 Pilih Subject (Seluruh Data)"** dropdown to filter by a specific subject (`40 images`) or view all subjects (`400 images`), and ensure **"Mode Khusus Stylus Pen (Jari = Geser)"** is checked.
    - Use **Zoom (`100%` – `300%`)** to trace the three boundaries accurately.
    - Tap **"💾 SIMPAN KE LAPTOP"** (or **"💾 SIMPAN REVISI (GANTI FILE LAMA)"** when revising an existing label).
 
