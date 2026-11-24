@@ -12,7 +12,7 @@ An interactive preprocessing and multi-class semantic boundary annotation framew
 ## Table of Contents
 
 1. [Scientific Overview](#1-scientific-overview)
-2. [Key Features (v2.1.0)](#2-key-features-v210)
+2. [Key Features (v2.2.0)](#2-key-features-v220)
 3. [Annotation Classes & Specifications](#3-annotation-classes--specifications)
 4. [Dataset Output Structure](#4-dataset-output-structure)
 5. [Installation](#5-installation)
@@ -37,16 +37,22 @@ This suite implements the **"Train on Spatial, Infer on Temporal"** paradigm:
 
 ---
 
-## 2. Key Features (v2.1.0)
+## 2. Key Features (v2.2.0)
 
-* **Stratified `1 Sample per Point` Workflow**:
-  * **Unified Multi-Point Queue**: Point the application to a parent dataset directory (or click **`📂 Gabung Semua Titik (1 Sampel/Titik)`**) to automatically scan all anatomical point subfolders (e.g., `footR.bin`, `footL.bin`, `handR.bin`, `handL.bin`) and queue **strictly 1 sample per point**.
-  * **Single-Point Mode with Direct Sibling Navigation**: When opening an individual point folder, the application sets the point target to `1 / 1 sample` and provides **`⏮ Titik Sblm` / `Titik Brkt ⏭`** buttons to jump directly between sibling point folders.
-  * **Non-Saving Random Slice Reroll (`🎲 Ganti Slice Acak [R]`)**: Rejects slices with poor optical structure without triggering auto-save, automatically removes any previously saved files for that point, tracks rejected slices to prevent immediate repeats, and resets the point status to **Unfinished (`[ ]`, `0 / 1`)**.
+* **Full Subject Dataset Mode & Subject Filter (`👤 Pilih Subject`)**:
+  * **Full Slice Annotation by Subject or Dataset**: Load and annotate all slices of an individual subject (`4 points × 10 slices = 40 images`) or the entire dataset (`10 subjects × 40 slices = 400 images`) while preserving all previously labeled samples (`[✓]`).
+  * **Subject Filter Dropdown (`👤 Pilih Subject`)**: Filter the queue by specific subject (`ALE`, `BASTIAN`, `BAYU`, `MOANA`, etc.) or view all subjects simultaneously.
+  * **Automatic Per-Point Output Routing**: Automatically routes exported crops, masks, overlays, and center strips into `preproc-output/<point_tag>/` regardless of whether a single point folder, single subject, or full dataset directory is loaded.
+  * **Quick Jump to Next Unlabeled Slice (`⏭ Lompat ke Slice Belum Dilabeli [R]`)**: Jumps directly to the next unlabeled slice without modifying existing saved annotations.
+* **Optional Stratified `1 Sample per Point` Mode (`🎯 Batasi 1 Sampel/Titik`)**:
+  * Toggleable checkbox to restrict the queue to **1 representative sample per anatomical point** with non-saving random slice reroll (`🎲 Ganti Slice Acak`).
 * **Label Revision & Auto-Replace Engine (`✏️ Mode Revisi`)**:
-  * **Atomic Overwrite on Revision**: When editing an already-labeled sample (`[✓]`), clicking **`💾 SIMPAN REVISI (GANTI FILE LAMA)`** automatically purges all previously exported files (`*_crop.png`, `*_mask.png`, `*_overlay.png`, `*_strip.png`, `*_strip_mask.png`) for that point before writing the updated image and mask—preventing duplicate or orphaned files in your training set.
-  * **One-Click Reset (`🗑️ Hapus Gambar Tersimpan`)**: Deletes the saved files of the current point from disk, clears the canvas mask, and resets its status to `[ ]` for a clean re-annotation.
-  * **Per-Point Slice Selector (`🎞️ Pilih / Revisi Slice Titik Ini`)**: Switch to any specific slice (`1..N`) within the active point folder to replace the previously selected sample.
+  * **Atomic Overwrite on Revision**: When editing an already-labeled sample (`[✓]`), clicking **`💾 SIMPAN REVISI (GANTI FILE LAMA)`** automatically purges the previous exported files (`*_crop.png`, `*_mask.png`, `*_overlay.png`, `*_strip.png`, `*_strip_mask.png`) before writing the updated image and mask—preventing duplicate or orphaned files in your training set.
+  * **One-Click Reset (`🗑️ Hapus Gambar Tersimpan`)**: Deletes the saved files of the current sample from disk, clears the canvas mask, and resets its status to `[ ]` for a clean re-annotation.
+  * **Per-Point Slice Selector (`🎞️ Pilih / Revisi Slice Titik Ini`)**: Switch to any specific slice (`1..N`) within the active point folder.
+* **Multi-Model Training, Evaluation & 500-Frame M-Scan Stitching Pipeline ([`model_train_test/`](model_train_test/README.md))**:
+  * Includes Google Colab notebooks for training and benchmarking **U-Net (ResNet34)**, **U-Net++ (ResNet34)**, **SegFormer (MiT-B1)**, and **YOLO26-seg** on both full **`512×512` Crops** and **`512×8` Center Strips**.
+  * Includes local VS Code inference scripts ([`predict_500frames_stitch.py`](model_train_test/predict_500frames_stitch.py) and [`evaluate_from_pth.py`](model_train_test/evaluate_from_pth.py)) to stitch `1px` center columns across `500` sequential M-Mode frames (`_0.bin`..`_4.bin`) and generate publication-ready evaluation graphs directly from `.pth`/`.pt` weights on CPU.
 * **Dual Deployment Architecture**:
   * **Remote Tablet Stylus Server (`tablet_server.py`)**: Keep large OCT datasets on your Laptop/Workstation while annotating from a Tablet browser (iPad / Android Tablet) over local Wi-Fi with hardware **Stylus Palm Rejection** (`Stylus = Draw`, `Finger Touch = Pan Canvas`).
   * **Desktop Native GUI (`label_app.py`)**: Full-featured PyQt6 desktop interface with real-time Bresenham line interpolation and keyboard-driven navigation.
@@ -182,14 +188,14 @@ If you use this software, its preprocessing workflow, or datasets generated by t
 @software{kusuma_oct_preprocessing_labeling_suite_2026,
   author       = {Kusuma, Raka Surya},
   title        = {{OCT Skin Layer Preprocessing and Boundary Annotation Suite (Spatial-to-Temporal Domain Adaptation)}},
-  version      = {2.1.0},
+  version      = {2.2.0},
   year         = {2026},
   url          = {https://github.com/rakasuryakusuma/preprocessing_labeling_apps}
 }
 ```
 
 ### APA Style
-> Kusuma, R. S. (2026). *OCT Skin Layer Preprocessing and Boundary Annotation Suite (Spatial-to-Temporal Domain Adaptation)* (Version 2.1.0) [Computer software]. GitHub. https://github.com/rakasuryakusuma/preprocessing_labeling_apps
+> Kusuma, R. S. (2026). *OCT Skin Layer Preprocessing and Boundary Annotation Suite (Spatial-to-Temporal Domain Adaptation)* (Version 2.2.0) [Computer software]. GitHub. https://github.com/rakasuryakusuma/preprocessing_labeling_apps
 
 *(You can also click the **"Cite this repository"** button on the right sidebar of the GitHub repository page, powered by [`CITATION.cff`](CITATION.cff)).*
 
